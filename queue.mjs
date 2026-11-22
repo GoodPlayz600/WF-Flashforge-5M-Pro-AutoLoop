@@ -29,7 +29,7 @@ const endPrompt = new Set(['completed', 'building_completed', 'cancel', 'cancele
 const idle = new Set(['ready', 'idle']);
 const cancellationPending = new Set(['canceling', 'cancelling', 'stopping']);
 const idleForHeat = new Set(['ready', 'completed']);
-const defaultSettings = { autoLevel: false, keepWarm: false, manualClearing: false, skipCooldown: true, bed: 50, nozzle: 0, minutes: 5 };
+const defaultSettings = { autoLevel: false, keepWarm: false, manualClearing: false, skipCooldown: true, autoConfirmClear: false, bed: 50, nozzle: 0, minutes: 5 };
 
 export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wait, saved = {}, persist = () => {}, defaultClearing, slowClearing, verifyPlateClear = async () => false }) {
   const lists = (saved.lists ?? [{ id: 'default', name: 'Production queue' }]).map(entry => {
@@ -386,11 +386,13 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
       const entry = list(id);
       const skipCooldown = typeof configuration.skipCooldown === 'boolean'
         ? configuration.skipCooldown : settingsFor(entry).skipCooldown;
+      const autoConfirmClear = typeof configuration.autoConfirmClear === 'boolean'
+        ? configuration.autoConfirmClear : settingsFor(entry).autoConfirmClear;
       entry.settings = {
         autoLevel: configuration.autoLevel === true,
         keepWarm: configuration.keepWarm === true,
         manualClearing: configuration.manualClearing === true,
-        skipCooldown, bed, nozzle, minutes,
+        skipCooldown, autoConfirmClear, bed, nozzle, minutes,
       };
       checkpoint();
     },
@@ -700,10 +702,13 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
             }
             job.state = 'Plate check';
             const moreCopies = copy + 1 < job.copies || jobIndex + 1 < queue.length;
-            if (!clearing || await verifyPlateClear({ filename: finishedFile, signal }) !== true) {
+            const autoConfirm = clearing && (settings.autoConfirmClear ||
+              await verifyPlateClear({ filename: finishedFile, signal }) === true);
+            if (!autoConfirm) {
               if (settings.keepWarm && moreCopies && !pauseAfterCopy) await warmWhileWaiting(settings, signal);
               else await awaitClear(signal);
             }
+            phase = 'Acknowledging completion on the printer';
             signal.throwIfAborted();
             await acknowledgeEndPrompt(finishedFile, signal);
             job.state = job.completed >= job.copies ? 'Done' : 'Queued';

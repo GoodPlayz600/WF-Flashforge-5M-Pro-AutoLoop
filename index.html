@@ -57,6 +57,7 @@
 <label class="check"><input type="checkbox" name="autoLevel"> Auto-level before each print</label>
 <label class="check"><input type="checkbox" name="manualClearing"> Clear plate manually</label>
 <label class="check"><input type="checkbox" name="skipCooldown" checked> Skip cooldown wait</label>
+<label class="check"><input type="checkbox" name="autoConfirmClear"> Auto-confirm after clearing</label>
 <label class="check"><input type="checkbox" name="keepWarm"> Keep warm between prints</label>
 </div>
 <div id="standby-options" class="fields" hidden>
@@ -64,7 +65,7 @@
 <label>Standby nozzle <span>°C</span><input type="number" step="1" min="0" max="170" name="nozzle" required></label>
 <label>Max hold <span>min</span><input type="number" min="1" max="15" name="minutes" required></label>
 </div>
-<p class="settings-note">Turn off Skip cooldown wait if your parts need time to release. Standby heat applies after clearing while the queue waits for plate confirmation.</p>
+<p class="settings-note">Turn off Skip cooldown wait if your parts need time to release. Auto-confirm advances after the clearing job succeeds. It does not inspect the plate.</p>
 <button type="submit" id="save-settings" class="secondary compact">Save settings</button>
 </form></details>
 <div class="footer"><p id="phase" role="status">Connect a printer to start.</p><div class="actions">

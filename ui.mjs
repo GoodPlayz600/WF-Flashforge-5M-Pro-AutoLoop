@@ -66,9 +66,10 @@ function renderQueue(next) {
   preset.querySelector('[value="custom"]').hidden = !entry.customClearing;
   preset.value = entry.clearingPreset;
   $('clearing-file').querySelectorAll('input, button, select').forEach(control => { control.disabled = next.busy; });
+  const coolingStep = settings.skipCooldown ? '' : ' → Cool';
+  const confirmationStep = settings.autoConfirmClear || next.simulation ? 'OK → Next copy' : 'Confirm plate clear';
   $('clearing-mode').textContent = settings.manualClearing ? 'Manual plate removal for this queue.'
-    : next.simulation ? 'Print → Clear → Continue automatically in simulator'
-      : settings.skipCooldown ? 'Print → Clear → Confirm plate clear' : 'Print → Cool → Clear → Confirm plate clear';
+    : `Print${coolingStep} → OK → Clear → ${confirmationStep}`;
   const currentSettingsKey = JSON.stringify([selected, settings]);
   if (settings && currentSettingsKey !== settingsKey) {
     settingsKey = currentSettingsKey;
@@ -76,6 +77,7 @@ function renderQueue(next) {
     form.autoLevel.checked = settings.autoLevel;
     form.manualClearing.checked = settings.manualClearing;
     form.skipCooldown.checked = settings.skipCooldown;
+    form.autoConfirmClear.checked = settings.autoConfirmClear;
     form.keepWarm.checked = settings.keepWarm;
     form.bed.value = settings.bed;
     form.nozzle.value = settings.nozzle;
@@ -382,7 +384,9 @@ $('start').onclick = () => {
     : ` ${base} Also confirm ${entry.clearingFilename} has been tested with these parts and the exit path is clear. Stay by the printer.`.trim();
   const hotClear = !entry.settings.manualClearing && entry.settings.skipCooldown
     ? ' Cooldown is off. Confirm the clearing file was tested immediately after a print.' : '';
-  if (ask(prompt + hotClear)) void post('/start', { ack: true, id: selected, clearingValidated: !entry.settings.manualClearing });
+  const automatic = !entry.settings.manualClearing && entry.settings.autoConfirmClear
+    ? ' The next copy starts automatically when clearing completes. Verify this clearing setup before using auto-confirm.' : '';
+  if (ask(prompt + hotClear + automatic)) void post('/start', { ack: true, id: selected, clearingValidated: !entry.settings.manualClearing });
 };
 $('queue-settings').elements.keepWarm.onchange = event => {
   $('standby-options').hidden = !event.target.checked;
@@ -390,7 +394,7 @@ $('queue-settings').elements.keepWarm.onchange = event => {
 $('queue-settings').onsubmit = async event => {
   event.preventDefault();
   const form = new FormData(event.target);
-  await post('/queue-settings', { id: selected, autoLevel: form.has('autoLevel'), manualClearing: form.has('manualClearing'), skipCooldown: form.has('skipCooldown'), keepWarm: form.has('keepWarm'),
+  await post('/queue-settings', { id: selected, autoLevel: form.has('autoLevel'), manualClearing: form.has('manualClearing'), skipCooldown: form.has('skipCooldown'), autoConfirmClear: form.has('autoConfirmClear'), keepWarm: form.has('keepWarm'),
     bed: Number(form.get('bed')), nozzle: Number(form.get('nozzle')), minutes: Number(form.get('minutes')) });
 };
 $('cancel-print').onclick = () => {

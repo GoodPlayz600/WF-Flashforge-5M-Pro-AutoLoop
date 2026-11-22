@@ -44,7 +44,7 @@ The **Device name** is the nickname you gave the printer. **Verified model** is 
 2. Select your sliced `.gcode`, enter **Copies**, and click **Add job**. Use **Edit** or the arrows to adjust queued jobs before starting.
 3. If you want to remove parts by hand, open **Between-print settings**, turn on **Clear plate manually**, and click **Save settings**. Otherwise, pick the clearing file for this queue.
 4. Check that the plate is empty, then click **Start this queue**. If you selected a clearing file, start only after you have tested it under supervision with the intended part, build plate, and exit path.
-5. After each copy, check the build plate, including any purge line or loose debris. Click **Confirm plate clear** in AutoLoop when the plate is empty. AutoLoop acknowledges the printer's completion prompt and checks for **Ready** before the next copy.
+5. By default, check the build plate after each copy and click **Confirm plate clear**. For a tested clearing setup, you can enable **Auto-confirm after clearing** under **Between-print settings** and click **Save settings**.
 
 ### Clearing files
 
@@ -57,7 +57,7 @@ The **Device name** is the nickname you gave the printer. **Verified model** is 
 
 Both bundled files cover the stock front-edge purge tracks at Y−109.6 and Y−110, sweeping from X58 to X−58. Use Slow clear for first-layer-height contact with those tracks. Check the edge for clips or obstructions before testing.
 
-AutoLoop sends the print file as supplied. If a clearing file is selected, AutoLoop sends it as a **separate job** with auto-leveling off. By default it sends the clearing job as soon as the finished print is acknowledged. A successful clearing job confirms that the file ran. On a real printer, **Confirm plate clear** is still required because the app cannot verify that the part came off by itself. Use supervised operation.
+AutoLoop sends the print file as supplied. If a clearing file is selected, AutoLoop sends it as a **separate job** with auto-leveling off. By default it sends the clearing job as soon as the finished print is acknowledged. AutoLoop acknowledges the print's completion prompt and waits for **Ready** before uploading the clearing job. After a successful clearing job, it acknowledges the clearing prompt after **Confirm plate clear**, or automatically if **Auto-confirm after clearing** is enabled. Auto-confirm is off by default. It assumes the successful clearing job removed the part and does not inspect the plate. Queues set to **Clear plate manually** still wait for confirmation.
 
 ### Between-print settings
 
