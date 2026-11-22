@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="wf-token" content="SERVER_TOKEN">
+<title>AutoLoop · Wisconsin Filaments</title>
+<link rel="stylesheet" href="/style.css">
+<script type="module" src="/ui.mjs"></script>
+</head>
+<body>
+<div class="top"><div class="bar"><div class="identity"><div class="mark" aria-hidden="true">WF</div><div><strong>AutoLoop</strong><small>Wisconsin Filaments</small></div></div><span class="pill" data-tone="idle" id="connection"><i></i><span>Disconnected</span></span></div></div>
+<main>
+<header class="pagehead"><div><h1>Printer dashboard</h1><p>Flashforge Adventurer 5M Pro</p></div><button type="button" id="open-connect" class="secondary">Connect printer</button></header>
+<p id="sim" class="notice" hidden>Simulator is on. It doesn’t send any commands to your printer.</p>
+<p id="message" role="alert" class="notice warning" hidden></p>
+<div class="overview">
+<section class="card camera" aria-labelledby="camera-title">
+<div class="cardhead"><div><h2 id="camera-title">Build plate camera</h2><p id="camera-status">Connect your printer to view the camera.</p></div><button type="button" id="camera-refresh" class="secondary compact" disabled>Refresh camera</button></div>
+<div class="viewfinder">
+<div id="camera-empty" class="camera-empty"><div class="lens" aria-hidden="true"></div><strong id="camera-label">Camera offline</strong><small id="camera-help">The feed appears here when the printer sends a frame.</small></div>
+<img id="camera-image" alt="Current frame from the printer's build plate camera" hidden>
+<span id="frame-time" hidden></span>
+</div>
+</section>
+<section class="card printer" aria-labelledby="printer-title">
+<div class="cardhead"><div><h2 id="printer-title">Printer telemetry</h2><p id="proof">Waiting for a response from the printer.</p></div><button type="button" id="verify" class="secondary compact" disabled>Check connection</button></div>
+<div class="tiles"><div><span>Printer state</span><strong id="machine-state">—</strong></div><div><span>Nozzle size</span><strong id="nozzle-size">—</strong></div><div><span>Bed</span><strong id="bed-temp">—</strong><small id="bed-target"></small></div><div><span>Nozzle</span><strong id="nozzle-temp">—</strong><small id="nozzle-target"></small></div></div>
+<dl><div><dt>Device name</dt><dd id="device">—</dd></div><div><dt>Verified model</dt><dd id="model">—</dd></div><div><dt>LAN address</dt><dd id="ip">—</dd></div><div><dt>Firmware</dt><dd id="firmware">—</dd></div></dl>
+</section>
+</div>
+<section class="card queue">
+<div class="cardhead"><div><h2>Production queues</h2><p id="queue-summary">Add a sliced G-code file to get started.</p></div>
+<div class="actions"><button id="rename" type="button" class="secondary compact">Rename</button><button id="new-queue" type="button" class="secondary compact">+ New queue</button></div></div>
+<div id="queue-tabs" class="tabs" aria-label="Select production queue"></div>
+<form id="add" class="add">
+<label class="upload"><span>Sliced G-code</span><input type="file" name="file" accept=".gcode" required></label>
+<label><span>Copies</span><input type="number" name="copies" value="1" min="1" step="1" required></label>
+<button type="submit">Add job</button>
+</form>
+<div class="table"><table><thead><tr><th>Job</th><th>Completed</th><th>Status</th><th>Manage</th></tr></thead><tbody id="jobs"></tbody></table></div>
+<section class="clearing-card" aria-labelledby="clearing-title">
+<div><h3 id="clearing-title">Clearing job</h3><strong id="clearing-filename"></strong><p id="clearing-mode"></p></div>
+<form id="clearing-file" class="actions">
+<label>Clearing file<select id="clearing-preset">
+<option value="fast">Fast clear</option>
+<option value="slow">Slow clear</option>
+<option value="custom" hidden>Custom upload</option>
+</select></label>
+<label class="upload"><span>Replace G-code</span><input type="file" name="file" accept=".gcode" required></label>
+<button type="submit" class="secondary">Use file</button>
+</form>
+</section>
+<details class="queue-settings"><summary>Between-print settings</summary>
+<form id="queue-settings">
+<div class="actions">
+<label class="check"><input type="checkbox" name="autoLevel"> Auto-level before each print</label>
+<label class="check"><input type="checkbox" name="manualClearing"> Clear plate manually</label>
+<label class="check"><input type="checkbox" name="keepWarm"> Keep warm between prints</label>
+</div>
+<div id="standby-options" class="fields" hidden>
+<label>Standby bed <span>°C</span><input type="number" step="1" min="0" max="75" name="bed" required></label>
+<label>Standby nozzle <span>°C</span><input type="number" step="1" min="0" max="170" name="nozzle" required></label>
+<label>Max hold <span>min</span><input type="number" min="1" max="15" name="minutes" required></label>
+</div>
+<p class="settings-note">Standby heat applies after clearing while the queue waits for plate confirmation.</p>
+<button type="submit" id="save-settings" class="secondary compact">Save settings</button>
+</form></details>
+<div class="footer"><p id="phase" role="status">Connect a printer to start.</p><div class="actions">
+<button type="button" id="start" disabled>Start this queue</button><button type="button" id="clear" hidden>Confirm plate clear</button><button type="button" id="pause" class="secondary" hidden>Pause after copy</button><button type="button" id="stop" class="secondary" hidden>Stop queue</button><button type="button" id="cancel-print" class="danger" hidden>Cancel print on printer</button>
+</div></div>
+</section>
+</main>
+<dialog id="connect-dialog">
+<form id="connect">
+<h2>Connect your 5M Pro</h2><p>Enable LAN Only on the printer. Enter the IP and LAN check code shown on the printer, plus its serial number.</p>
+<label>LAN IP<input name="ip" placeholder="192.168.1.42" autocomplete="off"></label>
+<label>Serial number<input name="serial" autocomplete="off"></label>
+<label>LAN check code<input name="code" type="password" autocomplete="off"></label>
+<p id="connect-result" class="inline-error" role="alert"></p>
+<div class="actions"><button type="submit">Connect and verify</button><button type="button" class="secondary" data-close="connect-dialog">Cancel</button></div>
+</form></dialog>
+<dialog id="name-dialog"><form id="name-form">
+<h2 id="name-title">New queue</h2><label>Queue name<input name="name" required maxlength="50"></label>
+<div class="actions"><button>Save queue</button><button type="button" class="secondary" data-close="name-dialog">Cancel</button></div></form></dialog>
+<dialog id="edit-dialog"><form id="edit-form">
+<h2>Edit job</h2><p id="edit-filename"></p><label>Copies<input name="copies" type="number" min="1" step="1" required></label>
+<div class="actions"><button>Save job</button><button type="button" class="secondary" data-close="edit-dialog">Cancel</button></div></form></dialog>
+</body></html>
