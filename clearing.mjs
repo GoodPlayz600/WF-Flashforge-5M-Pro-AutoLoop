@@ -1,4 +1,4 @@
-const moveLimits = { X: [-109, 109], Y: [-109, 109], Z: [0.2, 220], E: [-5, 0], F: [1, 24000] };
+const moveLimits = { X: [-109, 109], Y: [-110, 109], Z: [0.2, 220], E: [-5, 0], F: [1, 24000] };
 
 export function validateClearingCommands(bytes) {
   if (bytes.length > 256 * 1024) throw Error('Use a clearing G-code file under 256 KiB.');

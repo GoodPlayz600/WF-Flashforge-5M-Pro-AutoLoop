@@ -50,10 +50,12 @@ The **Device name** is the nickname you gave the printer. **Verified model** is 
 
 | Option | How it works |
 | --- | --- |
-| **Fast clear** | Default. The bundled file makes forward passes at Z4 and 60 mm/s. |
-| **Slow clear** | The bundled first-layer-height file makes forward passes at Z0.2 and 15 mm/s. Test it on a clean, empty, leveled plate before using it with a part. |
+| **Fast clear** | Default. Makes the main passes and front-edge passes at Z4 and 60 mm/s. The Z4 clearance leaves space above thin purge lines. |
+| **Slow clear** | Makes the main passes and front-edge passes at Z0.2 and 15 mm/s. Test it on a clean, empty, leveled plate before using it with a part. |
 | **Custom upload** | Choose **Replace G-code → Use file** to load your own clearing file. Its 5M Pro metadata and nozzle size must match the printer. The file must use supported commands and contain no forward extrusion. |
 | **Clear plate manually** | Skips the clearing job for that queue. Remove the part and click **Confirm plate clear**. |
+
+Both bundled files cover the stock front-edge purge tracks at Y−109.6 and Y−110, sweeping from X58 to X−58. Use Slow clear for first-layer-height contact with those tracks. Check the edge for clips or obstructions before testing.
 
 AutoLoop sends the print file as supplied. If a clearing file is selected, it waits for the configured cooldown and sends clearing as a **separate job** with auto-leveling off. A successful clearing job confirms that the file ran. On a real printer, **Confirm plate clear** is still required because the app cannot verify that the part came off by itself. Use supervised operation.
 
