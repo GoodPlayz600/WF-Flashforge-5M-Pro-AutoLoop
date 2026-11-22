@@ -29,7 +29,7 @@ const endPrompt = new Set(['completed', 'building_completed', 'cancel', 'cancele
 const idle = new Set(['ready', 'idle']);
 const cancellationPending = new Set(['canceling', 'cancelling', 'stopping']);
 const idleForHeat = new Set(['ready', 'completed']);
-const defaultSettings = { autoLevel: false, keepWarm: false, manualClearing: false, bed: 50, nozzle: 0, minutes: 5 };
+const defaultSettings = { autoLevel: false, keepWarm: false, manualClearing: false, skipCooldown: true, bed: 50, nozzle: 0, minutes: 5 };
 
 export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wait, saved = {}, persist = () => {}, defaultClearing, slowClearing, verifyPlateClear = async () => false }) {
   const lists = (saved.lists ?? [{ id: 'default', name: 'Production queue' }]).map(entry => {
@@ -383,7 +383,15 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
         throw Error('Use a bed target of 0–75 °C, a nozzle target of 0–170 °C, and a 1–15 minute standby timer.');
       }
       if (configuration.keepWarm === true && bed === 0 && nozzle === 0) throw Error('Set at least one standby temperature.');
-      list(id).settings = { autoLevel: configuration.autoLevel === true, keepWarm: configuration.keepWarm === true, manualClearing: configuration.manualClearing === true, bed, nozzle, minutes };
+      const entry = list(id);
+      const skipCooldown = typeof configuration.skipCooldown === 'boolean'
+        ? configuration.skipCooldown : settingsFor(entry).skipCooldown;
+      entry.settings = {
+        autoLevel: configuration.autoLevel === true,
+        keepWarm: configuration.keepWarm === true,
+        manualClearing: configuration.manualClearing === true,
+        skipCooldown, bed, nozzle, minutes,
+      };
       checkpoint();
     },
     configureClearing(id, file) {
@@ -671,9 +679,13 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
             checkpoint();
             let finishedFile = filename;
             if (clearing) {
-              job.state = 'Cooling';
-              phase = 'Waiting for the plate and nozzle to cool';
-              await cooled(plan.parameters.cooled, signal);
+              if (!settings.skipCooldown) {
+                job.state = 'Cooling';
+                phase = 'Waiting for the plate and nozzle to cool';
+                await cooled(plan.parameters.cooled, signal);
+              }
+              job.state = 'Preparing to clear';
+              phase = 'Preparing separate clearing job';
               await acknowledgeEndPrompt(filename, signal);
               finishedFile = filename.replace(/\.gcode$/, '-clear.gcode');
               job.state = 'Clearing';

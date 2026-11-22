@@ -38,7 +38,7 @@ export function estimateQueue(jobs, { clearing, clearingSeconds, activeJob, prog
     }
     if (clearing) {
       add(copies, clearingSeconds);
-      if (active && job.state === 'Cooling') add(1, clearingSeconds);
+      if (active && ['Cooling', 'Preparing to clear'].includes(job.state)) add(1, clearingSeconds);
       if (active && job.state === 'Clearing') add(1, remainingSeconds(progress, clearingSeconds));
     }
   }

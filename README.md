@@ -57,12 +57,13 @@ The **Device name** is the nickname you gave the printer. **Verified model** is 
 
 Both bundled files cover the stock front-edge purge tracks at Y−109.6 and Y−110, sweeping from X58 to X−58. Use Slow clear for first-layer-height contact with those tracks. Check the edge for clips or obstructions before testing.
 
-AutoLoop sends the print file as supplied. If a clearing file is selected, it waits for the configured cooldown and sends clearing as a **separate job** with auto-leveling off. A successful clearing job confirms that the file ran. On a real printer, **Confirm plate clear** is still required because the app cannot verify that the part came off by itself. Use supervised operation.
+AutoLoop sends the print file as supplied. If a clearing file is selected, AutoLoop sends it as a **separate job** with auto-leveling off. By default it sends the clearing job as soon as the finished print is acknowledged. A successful clearing job confirms that the file ran. On a real printer, **Confirm plate clear** is still required because the app cannot verify that the part came off by itself. Use supervised operation.
 
 ### Between-print settings
 
 - **Auto-level before each print** defaults to off. It sets the printer's leveling flag for normal prints. Any leveling commands in the supplied file still run.
 - **Keep warm between prints** defaults to off. If enabled, it holds the configured standby temperatures for a limited time while the queue waits for plate confirmation. A setting of 0 keeps the corresponding heater off.
+- **Skip cooldown wait** defaults to on for each queue. Use it only once the clearing file has been tested immediately after a print. Turn it off to wait for both heater targets to turn off, the nozzle to reach 50 °C or below, and the bed to reach the saved threshold (30 °C by default). The cooldown check times out after 45 minutes.
 - **Pause after copy** pauses at the plate-clear checkpoint so you can resume the rest of the queue later.
 
 ## Stop, cancel, and upgrade
@@ -82,7 +83,7 @@ AutoLoop sends the print file as supplied. If a clearing file is selected, it wa
 | The camera is blank | Enable the camera on the printer and click **Refresh camera**. Some printers may supply snapshots instead of a continuous feed. |
 | A print upload is rejected | Export text `.gcode` for the 5M Pro and the installed nozzle. Print files must be under 48 MiB. |
 | A clearing upload is rejected | Verify the printer and nozzle metadata, check the command reported by AutoLoop, and keep the file under 256 KiB. |
-| The queue stalls during cooldown | Check that both heater targets are off on the touchscreen. AutoLoop waits for the nozzle and bed to cool before sending a clearing job. |
+| The queue stalls during cooldown | If Skip cooldown wait is off, check that both heater targets are off and allow the nozzle and bed to cool. |
 | The touchscreen still asks for OK | After removing material, try **Confirm plate clear** in AutoLoop. If the printer still shows the prompt, acknowledge it on the touchscreen and review the queue status. |
 
 [Flashforge Adventurer 5M Pro manual](https://wiki.flashforge.com/resource/adventurer_series_manual/adventurer_5m_pro_manual.pdf)
