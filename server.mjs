@@ -176,6 +176,7 @@ const server = createServer(async (request, response) => {
       case '/create-queue': selectedQueue = queue.createList(body.name); break;
       case '/rename-queue': queue.renameList(body.id, body.name); break;
       case '/clearing-file': queue.configureClearing(body.id, body.file); break;
+      case '/test-clearing-height': queue.testClearingHeight(body.id, body.height, body.ack); break;
       case '/clearing-height': queue.setClearingHeight(body.id, body.height); break;
       case '/clearing-preset': queue.selectClearing(body.id, body.preset); break;
       case '/queue-settings': queue.configureQueue(body.id, body); break;

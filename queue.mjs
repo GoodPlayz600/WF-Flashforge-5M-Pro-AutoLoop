@@ -29,7 +29,13 @@ const endPrompt = new Set(['completed', 'building_completed', 'cancel', 'cancele
 const idle = new Set(['ready', 'idle']);
 const cancellationPending = new Set(['canceling', 'cancelling', 'stopping']);
 const idleForHeat = new Set(['ready', 'completed']);
-const defaultSettings = { autoLevel: false, keepWarm: false, manualClearing: false, skipCooldown: true, autoConfirmClear: false, bed: 50, nozzle: 0, minutes: 5 };
+const defaultSettings = { autoLevel: false, keepWarm: false, manualClearing: false, skipCooldown: true, autoConfirmClear: true, bed: 50, nozzle: 0, minutes: 5 };
+
+function requireSweepHeight(height) {
+  if (!Number.isInteger(height) || height < 0 || height > 200 || height % 5 !== 0) {
+    throw Error('Choose a sweep height from 0 to 200 mm in 5 mm steps.');
+  }
+}
 
 export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wait, saved = {}, persist = () => {}, defaultClearing, slowClearing, verifyPlateClear = async () => false }) {
   const lists = (saved.lists ?? [{ id: 'default', name: 'Production queue' }]).map(entry => {
@@ -434,14 +440,35 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
     },
     setClearingHeight(id, height) {
       requireIdle();
-      if (height !== null && (!Number.isInteger(height) || height < 0 || height > 200 || height % 5 !== 0)) {
-        throw Error('Choose a sweep height from 0 to 200 mm in 5 mm steps.');
-      }
+      if (height !== null) requireSweepHeight(height);
       const entry = list(id);
       if (clearingSelection(entry) === 'custom') throw Error('Select Fast clear or Slow clear to adjust the sweep height.');
       entry.clearingHeight = height;
       heightProfiles.delete(entry);
       checkpoint();
+    },
+    testClearingHeight(id, height, acknowledged) {
+      requirePrinter(); requireIdle(); requireAck(acknowledged);
+      requireSweepHeight(height);
+      const preset = presets[clearingSelection(list(id))];
+      if (!preset) throw Error('Select Fast clear or Slow clear to test the slider height.');
+      const { bytes, nozzle } = clearingAtHeight(preset, height);
+      const filename = `wf-test-sweep-${randomUUID().slice(0, 8)}.gcode`;
+      startTask(async signal => {
+        phase = 'Preparing sweep test';
+        let detail = await readStatus();
+        if (!idle.has(detail.status) && !endPrompt.has(detail.status)) {
+          throw Error('The printer must be idle before a sweep test.');
+        }
+        if (Number(detail.nozzleModel?.match(/[\d.]+/)?.[0]) !== nozzle) {
+          throw Error('The clearing file nozzle profile must match the printer.');
+        }
+        if (endPrompt.has(detail.status)) detail = await acknowledgeEndPrompt(detail.printFileName, signal);
+        verifyPrinter(detail);
+        await startFile(bytes, filename, false, signal, true);
+        await acknowledgeEndPrompt(filename, signal);
+        phase = `Sweep test complete at Z${height || 0.2} mm.`;
+      });
     },
     add(source) {
       const job = parseJob(source);

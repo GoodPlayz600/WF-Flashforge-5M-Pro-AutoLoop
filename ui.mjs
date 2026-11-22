@@ -75,6 +75,7 @@ function renderQueue(next) {
   $('clearing-height-form').hidden = !adjustable;
   $('clearing-height-form').querySelectorAll('input, button').forEach(control => { control.disabled = next.busy; });
   $('reset-height').hidden = height === null;
+  $('test-clearing-height').disabled = next.busy || !connectedNow(next);
   const currentHeightKey = JSON.stringify([selected, height, entry.clearingPreset]);
   if (currentHeightKey !== heightKey) {
     heightKey = currentHeightKey;
@@ -404,6 +405,13 @@ $('clearing-height-form').onsubmit = async event => {
   await post('/clearing-height', { id: selected, height: Number($('sweep-height').value) });
 };
 $('reset-height').onclick = () => void post('/clearing-height', { id: selected, height: null });
+$('test-clearing-height').onclick = () => {
+  const entry = state.lists.find(item => item.id === selected);
+  const height = Number($('sweep-height').value);
+  const speed = entry.clearingPreset === 'slow' ? 'Slow clear' : 'Fast clear';
+  const prompt = `Run ${speed} at Z${displayedSweepHeight(height)}? The test heats the printer and moves the toolhead. Confirm the plate and exit path are empty, then stay at the printer.`;
+  if (ask(prompt)) void post('/test-clearing-height', { id: selected, height, ack: true });
+};
 $('start').onclick = () => {
   const entry = state.lists.find(item => item.id === selected);
   const base = 'Confirm the plate is empty, filament detection is on, and the printer is ready.';
