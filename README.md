@@ -68,6 +68,15 @@ AutoLoop sends the print file as supplied. If a clearing file is selected, AutoL
 - **Skip cooldown wait** defaults to on for each queue. Use it only once the clearing file has been tested immediately after a print. Turn it off to wait for both heater targets to turn off, the nozzle to reach 50 °C or below, and the bed to reach the saved threshold (30 °C by default). The cooldown check times out after 45 minutes.
 - **Pause after copy** pauses at the plate-clear checkpoint so you can resume the rest of the queue later.
 
+## Run a fleet
+
+1. Open **Multi-printer** and click **Add printer** for each Adventurer 5M Pro. Use a label you can recognize next to the machine.
+2. Review **Shared settings** before starting. Clearing preset, sweep height, cooling, leveling, plate confirmation, and standby preferences apply to every fleet printer. Save changes while the fleet is idle. The **Single printer** tab retains its own settings and queues.
+3. Upload sliced G-code and enter a copy count. **Assign to one printer** is the default. Choose **Auto-split copies** to divide that batch as evenly as possible among connected, idle fleet printers with a matching nozzle.
+4. Click **Start ready printers** after checking each intended build plate, or start a single queue from its card. **Open dashboard** gives access to that printer's camera, individual queues, plate confirmation, sweep test, and stop controls.
+
+Assignments are added to each printer's production queue and do not start a print by themselves. Each printer runs independently. A failed or disconnected printer's copies stay on its queue for review. Fleet printer labels, queues, and shared settings are saved in `local-data/fleet`. Reconnect each printer after restarting AutoLoop. Pairing a printer in the other view moves an idle connection so two dashboards cannot control the same device at once.
+
 ## Stop, cancel, and upgrade
 
 - **Stop queue** prevents further uploads. The printer can continue a job it already received.

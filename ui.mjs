@@ -1,9 +1,15 @@
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="wf-token"]').content;
+const scope = /^\/printers\/[a-f0-9-]{36}/.exec(location.pathname)?.[0] ?? '';
+const selectionKey = scope ? `wf-active-queue:${scope}` : 'wf-active-queue';
+if (scope) {
+  $('single-view').removeAttribute('aria-current');
+  $('fleet-profile-note').hidden = false;
+}
 let state = {};
 let latestRequest = 0;
 let updating = false;
-let selected = localStorage.getItem('wf-active-queue') ?? 'default';
+let selected = localStorage.getItem(selectionKey) ?? 'default';
 let tabKey;
 let jobsKey;
 let settingsKey;
@@ -49,7 +55,7 @@ function renderQueue(next) {
     $('queue-tabs').replaceChildren(...next.lists.map(entry => {
       const tab = btn(entry.name, () => {
         selected = entry.id;
-        localStorage.setItem('wf-active-queue', selected);
+        localStorage.setItem(selectionKey, selected);
         render(state);
       });
       tab.setAttribute('aria-pressed', String(entry.id === selected));
@@ -231,7 +237,7 @@ async function getCamera() {
   const connection = new AbortController();
   cameraConnection = connection;
   try {
-    const response = await fetch('/camera', {
+    const response = await fetch(scope + '/camera', {
       headers: { 'X-WF-Token': token }, cache: 'no-store', signal: connection.signal,
     });
     if (!response.ok) throw Error((await response.json()).error);
@@ -284,7 +290,7 @@ async function getState() {
   if (updating) return;
   const id = ++latestRequest;
   try {
-    const response = await fetch('/state');
+    const response = await fetch(scope + '/state');
     const data = await response.json();
     if (id === latestRequest) render(data);
   } catch {
@@ -305,13 +311,13 @@ async function post(path, body = {}, target) {
   status('');
   if (target) status('', target);
   try {
-    const response = await fetch(path, {
+    const response = await fetch(scope + path, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-WF-Token': token }, body: JSON.stringify(body),
     });
     const data = await response.json();
     if (!response.ok) throw Error(data.error);
     if (id === latestRequest) {
-      if (data.selectedQueue) { selected = data.selectedQueue; localStorage.setItem('wf-active-queue', selected); }
+      if (data.selectedQueue) { selected = data.selectedQueue; localStorage.setItem(selectionKey, selected); }
       render(data);
     }
     return true;

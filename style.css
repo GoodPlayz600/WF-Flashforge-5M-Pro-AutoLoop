@@ -37,3 +37,24 @@ body{background:radial-gradient(ellipse at 75% 0,#192d38 0,transparent 44rem),va
 .clearing-range{min-width:min(210px,100%);flex:1}
 .clearing-range output{float:right;color:var(--text);font-weight:650}
 .clearing-range input[type=range]{padding:0;accent-color:var(--mint)}
+
+.view-tabs{display:flex;align-items:center;gap:8px;margin-bottom:20px;border-bottom:1px solid var(--line)}
+.view-tabs a{color:var(--muted);text-decoration:none;padding:8px 12px;border-bottom:2px solid transparent}
+.view-tabs a[aria-current=page]{color:var(--mint);border-bottom-color:var(--mint)}
+.view-tabs span{color:var(--muted);margin-left:auto;font-size:12px}
+.fleet-layout,.fleet-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.fleet-form{display:grid;gap:10px}
+.fleet-form button{justify-self:start}
+.fleet-fields,.fleet-checks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px}
+.fleet-checks .check{margin:0}
+.fleet-printers{margin-top:23px}
+.fleet-printers>h2{margin-bottom:10px}
+.fleet-printer h3{margin:0;font-size:16px}
+.fleet-phase,.fleet-count{font-size:13px}
+.fleet-count{margin-top:10px}
+.fleet-queue{list-style:none;margin:8px 0 12px;padding:0}
+.fleet-queue li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:6px 0;border-top:1px solid var(--line);font-size:13px}
+.fleet-queue strong{overflow-wrap:anywhere}
+.fleet-queue span{color:var(--muted);text-align:right}
+.button-link{display:inline-block;text-decoration:none;color:var(--mint);border:1px solid var(--line);border-radius:7px;padding:6px 9px;font-size:12px}
+@media(max-width:760px){.fleet-layout,.fleet-grid{grid-template-columns:1fr}}

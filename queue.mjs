@@ -37,7 +37,7 @@ function requireSweepHeight(height) {
   }
 }
 
-export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wait, saved = {}, persist = () => {}, defaultClearing, slowClearing, verifyPlateClear = async () => false }) {
+export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wait, saved = {}, persist = () => {}, defaultClearing, slowClearing, sharedProfile, verifyPlateClear = async () => false }) {
   const lists = (saved.lists ?? [{ id: 'default', name: 'Production queue' }]).map(entry => {
     if (!defaultClearing || !entry.settings || Object.hasOwn(entry.settings, 'manualClearing')) return entry;
     return { ...entry, settings: { ...entry.settings, autoLevel: false, manualClearing: false } };
@@ -84,14 +84,17 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
   let cancelling = false;
   let warmUntil = null;
   let warmIssue = '';
-  const settingsFor = entry => ({ ...defaultSettings, ...entry.settings });
+  const profileFor = entry => sharedProfile ? sharedProfile() : entry;
+  const settingsFor = entry => ({ ...defaultSettings, ...profileFor(entry).settings });
   const presets = { fast: defaultClearing, slow: slowClearing };
   function clearingSelection(entry) {
+    entry = profileFor(entry);
     if (Object.hasOwn(presets, entry.clearingPreset) && presets[entry.clearingPreset]) return entry.clearingPreset;
     return entry.clearing ? 'custom' : 'fast';
   }
   const heightProfiles = new WeakMap();
   function clearingFor(entry, modelHeight) {
+    entry = profileFor(entry);
     const selection = clearingSelection(entry);
     if (selection !== 'custom') {
       const preset = presets[selection];
@@ -109,6 +112,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
   const isFileClearing = Boolean(defaultClearing);
   const legacyClearingEstimates = new WeakMap();
   function clearingEstimate(entry, modelHeight) {
+    entry = profileFor(entry);
     const selection = clearingSelection(entry);
     if (selection !== 'custom') {
       if (entry.clearingHeight != null && modelHeight > 210) return null;
@@ -314,6 +318,15 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
   }
 
   return {
+    profile() { return list('default'); },
+    replaceProfile(next) {
+      requireIdle();
+      const index = lists.findIndex(entry => entry.id === 'default');
+      const previous = lists[index];
+      lists[index] = next;
+      try { checkpoint(); }
+      catch (error) { lists[index] = previous; throw error; }
+    },
     state() {
       const ownedProgress = ownedPrint && details?.printFileName === ownedPrint && printActive.has(details.status)
         ? details : null;
@@ -325,14 +338,15 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
         ? remainingSeconds(details, ownedProgress ? activeEstimate : null) : null;
       return {
         lists: lists.map(entry => {
+          const profile = profileFor(entry);
           const settings = settingsFor(entry);
           const current = entry.id === activeQueue;
           return {
             id: entry.id, name: entry.name, settings,
             clearingPreset: clearingSelection(entry),
-            clearingHeight: entry.clearingHeight ?? null,
-            clearingFilename: clearingSelection(entry) === 'custom' ? entry.clearing?.filename : presets[clearingSelection(entry)]?.filename,
-            customClearing: Boolean(entry.clearing),
+            clearingHeight: profile.clearingHeight ?? null,
+            clearingFilename: clearingSelection(entry) === 'custom' ? profile.clearing?.filename : presets[clearingSelection(entry)]?.filename,
+            customClearing: Boolean(profile.clearing),
             estimate: estimateQueue(jobs.filter(job => job.queueId === entry.id), {
               clearing: isFileClearing && !settings.manualClearing,
               clearingSeconds: job => clearingEstimate(entry, job.height),
@@ -356,9 +370,9 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
         jobs: jobs.map(({ id, queueId, filename, state, copies, completed, sweep, raised, height }) => ({ id, queueId, filename, state, copies, completed, sweep, raised, height })),
       };
     },
-    async connect(next) {
+    async connect(next, verifiedDetail) {
       requireIdle();
-      const d = await next.detail();
+      const d = verifiedDetail ?? await next.detail();
       requireIdle();
       verifyModel(d);
       printer = next;
@@ -372,6 +386,20 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
       clearanceProof = false;
       problem = '';
       phase = 'Connected';
+    },
+    disconnect() {
+      requireIdle();
+      printer = null;
+      details = null;
+      checkedAt = null;
+      connectionIssue = '';
+      jogBaseline = null;
+      motionReading = null;
+      clearanceProof = false;
+      airProof = false;
+      contactProof = false;
+      problem = '';
+      phase = 'Connect a printer';
     },
     async refresh(force = false) {
       if (!printer || (running && !pendingClear && !force)) return;
@@ -471,9 +499,14 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
       });
     },
     add(source) {
-      const job = parseJob(source);
-      jobs.push({ ...job, queueId: list(source.queueId).id, id: randomUUID(), state: 'Queued', completed: 0 });
-      checkpoint();
+      return this.addParsed(parseJob(source), source.queueId);
+    },
+    addParsed(job, queueId) {
+      const entry = { ...job, queueId: list(queueId).id, id: randomUUID(), state: 'Queued', completed: 0 };
+      jobs.push(entry);
+      try { checkpoint(); }
+      catch (error) { jobs.pop(); throw error; }
+      return entry.id;
     },
     edit(id, copies, sweep, raised) {
       requireIdle();
@@ -705,7 +738,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
       }
       const clearingFiles = new Map();
       if (clearing) {
-        for (const job of queue) clearingFiles.set(job.id, selected.clearingHeight == null || clearingSelection(selected) === 'custom'
+        for (const job of queue) clearingFiles.set(job.id, profileFor(selected).clearingHeight == null || clearingSelection(selected) === 'custom'
           ? clearing : clearingFor(selected, job.height));
       }
       const prepared = new Map();
