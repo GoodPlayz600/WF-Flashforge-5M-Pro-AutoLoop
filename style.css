@@ -32,3 +32,8 @@ body{background:radial-gradient(ellipse at 75% 0,#192d38 0,transparent 44rem),va
   .add{grid-template-columns:minmax(0,1fr) 83px}
   .add button{grid-column:1/-1;justify-self:end}
 }
+
+#clearing-height-form{flex-wrap:wrap;align-self:stretch}
+.clearing-range{min-width:min(210px,100%);flex:1}
+.clearing-range output{float:right;color:var(--text);font-weight:650}
+.clearing-range input[type=range]{padding:0;accent-color:var(--mint)}

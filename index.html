@@ -50,6 +50,15 @@
 <label class="upload"><span>Replace G-code</span><input type="file" name="file" accept=".gcode" required></label>
 <button type="submit" class="secondary">Use file</button>
 </form>
+<form id="clearing-height-form" class="actions">
+<label class="clearing-range">
+<span>Sweep height <output id="sweep-height-value" for="sweep-height">0.2 mm</output></span>
+<input type="range" id="sweep-height" min="0" max="200" step="5" value="0">
+<small>0.2 mm at the 0 mark · 200 mm max</small>
+</label>
+<button type="submit" class="secondary">Apply height</button>
+<button type="button" id="reset-height" class="secondary" hidden>Reset height</button>
+</form>
 </section>
 <details class="queue-settings"><summary>Between-print settings</summary>
 <form id="queue-settings">

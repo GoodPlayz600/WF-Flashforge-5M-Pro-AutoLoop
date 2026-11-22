@@ -7,6 +7,7 @@ let selected = localStorage.getItem('wf-active-queue') ?? 'default';
 let tabKey;
 let jobsKey;
 let settingsKey;
+let heightKey;
 let editId;
 let renaming = false;
 let cameraConnection;
@@ -36,6 +37,10 @@ function formatDuration(seconds) {
   return hours ? `${hours} h ${minutes % 60} min` : `${minutes} min`;
 }
 
+function displayedSweepHeight(value) {
+  return `${Number(value) === 0 ? 0.2 : value} mm`;
+}
+
 function renderQueue(next) {
   if (!next.lists.some(item => item.id === selected)) selected = next.lists[0].id;
   const currentTabKey = JSON.stringify([next.lists.map(({ id, name }) => [id, name]), selected, next.activeQueue]);
@@ -61,7 +66,21 @@ function renderQueue(next) {
     ? (seconds ? `Queue time left · ${formatDuration(seconds)} estimated + jobs without a time estimate` : 'Queue time left · No estimates in these files')
     : `Queue time left · About ${formatDuration(seconds)}`;
   eta.title = 'Estimated print and clearing time. Excludes cooldown and time waiting for confirmation.';
-  $('clearing-filename').textContent = entry.clearingFilename;
+  const height = entry.clearingHeight;
+  const adjustable = entry.clearingPreset !== 'custom';
+  const builtIn = entry.clearingPreset === 'slow' ? '0.2 mm' : '4 mm';
+  $('clearing-filename').textContent = adjustable
+    ? `${entry.clearingFilename} · Z ${height === null ? builtIn : displayedSweepHeight(height)}`
+    : entry.clearingFilename;
+  $('clearing-height-form').hidden = !adjustable;
+  $('clearing-height-form').querySelectorAll('input, button').forEach(control => { control.disabled = next.busy; });
+  $('reset-height').hidden = height === null;
+  const currentHeightKey = JSON.stringify([selected, height, entry.clearingPreset]);
+  if (currentHeightKey !== heightKey) {
+    heightKey = currentHeightKey;
+    $('sweep-height').value = height ?? 0;
+    $('sweep-height-value').textContent = displayedSweepHeight(height ?? 0);
+  }
   const preset = $('clearing-preset');
   preset.querySelector('[value="custom"]').hidden = !entry.customClearing;
   preset.value = entry.clearingPreset;
@@ -377,6 +396,14 @@ $('clearing-file').onsubmit = async event => {
 $('clearing-preset').onchange = async event => {
   if (!await post('/clearing-preset', { id: selected, preset: event.target.value })) render(state);
 };
+$('sweep-height').oninput = event => {
+  $('sweep-height-value').textContent = displayedSweepHeight(event.target.value);
+};
+$('clearing-height-form').onsubmit = async event => {
+  event.preventDefault();
+  await post('/clearing-height', { id: selected, height: Number($('sweep-height').value) });
+};
+$('reset-height').onclick = () => void post('/clearing-height', { id: selected, height: null });
 $('start').onclick = () => {
   const entry = state.lists.find(item => item.id === selected);
   const base = 'Confirm the plate is empty, filament detection is on, and the printer is ready.';
@@ -386,7 +413,9 @@ $('start').onclick = () => {
     ? ' Cooldown is off. Confirm the clearing file was tested immediately after a print.' : '';
   const automatic = !entry.settings.manualClearing && entry.settings.autoConfirmClear
     ? ' The next copy starts automatically when clearing completes. Verify this clearing setup before using auto-confirm.' : '';
-  if (ask(prompt + hotClear + automatic)) void post('/start', { ack: true, id: selected, clearingValidated: !entry.settings.manualClearing });
+  const height = !entry.settings.manualClearing && entry.clearingPreset !== 'custom' && entry.clearingHeight !== null
+    ? ` The selected sweep height is ${displayedSweepHeight(entry.clearingHeight)}.` : '';
+  if (ask(prompt + height + hotClear + automatic)) void post('/start', { ack: true, id: selected, clearingValidated: !entry.settings.manualClearing });
 };
 $('queue-settings').elements.keepWarm.onchange = event => {
   $('standby-options').hidden = !event.target.checked;

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as wait } from 'node:timers/promises';
 import { verifyPrinter, verifyCooled, verifyModel } from './printer.mjs';
 import { injectRaisedSweep } from './inject.mjs';
-import { validateClearingCommands } from './clearing.mjs';
+import { clearingAtHeight, validateClearingCommands } from './clearing.mjs';
 import { estimateQueue, remainingSeconds, slicedSeconds } from './estimates.mjs';
 import { raisedSweepPreset, sweepPlan } from './sweep.mjs';
 
@@ -84,18 +84,30 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
     if (Object.hasOwn(presets, entry.clearingPreset) && presets[entry.clearingPreset]) return entry.clearingPreset;
     return entry.clearing ? 'custom' : 'fast';
   }
-  function clearingFor(entry) {
+  const heightProfiles = new WeakMap();
+  function clearingFor(entry, modelHeight) {
     const selection = clearingSelection(entry);
-    if (selection !== 'custom') return presets[selection];
+    if (selection !== 'custom') {
+      const preset = presets[selection];
+      if (!preset || entry.clearingHeight == null) return preset;
+      if (!heightProfiles.has(entry)) heightProfiles.set(entry, new Map());
+      const cached = heightProfiles.get(entry);
+      const key = `${selection}/${entry.clearingHeight}/${modelHeight ?? 0}`;
+      if (!cached.has(key)) cached.set(key, clearingAtHeight(preset, entry.clearingHeight, modelHeight));
+      return cached.get(key);
+    }
     const job = parseJob({ ...entry.clearing, copies: 1 });
     validateClearingCommands(job.bytes);
     return job;
   }
   const isFileClearing = Boolean(defaultClearing);
   const legacyClearingEstimates = new WeakMap();
-  function clearingEstimate(entry) {
+  function clearingEstimate(entry, modelHeight) {
     const selection = clearingSelection(entry);
-    if (selection !== 'custom') return presets[selection]?.estimatedSeconds ?? null;
+    if (selection !== 'custom') {
+      if (entry.clearingHeight != null && modelHeight > 210) return null;
+      return clearingFor(entry, modelHeight)?.estimatedSeconds ?? null;
+    }
     const file = entry.clearing;
     if (Object.hasOwn(file, 'estimatedSeconds')) return file.estimatedSeconds;
     if (!legacyClearingEstimates.has(file)) legacyClearingEstimates.set(file, slicedSeconds(Buffer.from(file.data, 'base64')));
@@ -302,7 +314,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
       const runningJob = ownedPrint ? (activeJob?.state === 'Clearing' ? 'clearing' : 'print') : null;
       const selectedList = activeQueue ? list(activeQueue) : null;
       const activeEstimate = runningJob === 'clearing' && selectedList
-        ? clearingEstimate(selectedList) : activeJob?.estimatedSeconds;
+        ? clearingEstimate(selectedList, activeJob?.height) : activeJob?.estimatedSeconds;
       const activeSeconds = !connectionIssue && details && printActive.has(details.status)
         ? remainingSeconds(details, ownedProgress ? activeEstimate : null) : null;
       return {
@@ -312,11 +324,12 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
           return {
             id: entry.id, name: entry.name, settings,
             clearingPreset: clearingSelection(entry),
+            clearingHeight: entry.clearingHeight ?? null,
             clearingFilename: clearingSelection(entry) === 'custom' ? entry.clearing?.filename : presets[clearingSelection(entry)]?.filename,
             customClearing: Boolean(entry.clearing),
             estimate: estimateQueue(jobs.filter(job => job.queueId === entry.id), {
               clearing: isFileClearing && !settings.manualClearing,
-              clearingSeconds: clearingEstimate(entry),
+              clearingSeconds: job => clearingEstimate(entry, job.height),
               activeJob: current ? activeJob?.id : null,
               runningJob: current ? runningJob : null,
               progress: current && !connectionIssue ? ownedProgress : null,
@@ -417,6 +430,17 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
         throw Error('Choose an available clearing file.');
       }
       entry.clearingPreset = preset;
+      checkpoint();
+    },
+    setClearingHeight(id, height) {
+      requireIdle();
+      if (height !== null && (!Number.isInteger(height) || height < 0 || height > 200 || height % 5 !== 0)) {
+        throw Error('Choose a sweep height from 0 to 200 mm in 5 mm steps.');
+      }
+      const entry = list(id);
+      if (clearingSelection(entry) === 'custom') throw Error('Select Fast clear or Slow clear to adjust the sweep height.');
+      entry.clearingHeight = height;
+      heightProfiles.delete(entry);
       checkpoint();
     },
     add(source) {
@@ -652,6 +676,11 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
       if (clearing && queue.some(job => job.nozzle !== clearing.nozzle)) {
         throw Error('The clearing file nozzle profile must match every queued print.');
       }
+      const clearingFiles = new Map();
+      if (clearing) {
+        for (const job of queue) clearingFiles.set(job.id, selected.clearingHeight == null || clearingSelection(selected) === 'custom'
+          ? clearing : clearingFor(selected, job.height));
+      }
       const prepared = new Map();
       for (const job of isFileClearing ? [] : queue) {
         if (job.raised && job.sweep) throw Error('Select one clearing mode per job.');
@@ -692,7 +721,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
               finishedFile = filename.replace(/\.gcode$/, '-clear.gcode');
               job.state = 'Clearing';
               phase = 'Sending separate clearing G-code';
-              await startFile(clearing.bytes, finishedFile, false, signal, true);
+              await startFile(clearingFiles.get(job.id).bytes, finishedFile, false, signal, true);
             } else if (!isFileClearing && job.sweep) {
               job.state = 'Cooling';
               phase = plan.parameters.cooled === null ? 'Waiting for nozzle cooldown' : 'Waiting for measured cooldown';

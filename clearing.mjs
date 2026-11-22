@@ -34,3 +34,41 @@ export function validateClearingCommands(bytes) {
   }
   if (!xyMoves) throw Error('The clearing file has no XY motion.');
 }
+
+export function clearingAtHeight(preset, height, modelHeight) {
+  const z = height === 0 ? 0.2 : height;
+  const travel = Math.max(12, z + 10, modelHeight ? Math.ceil(modelHeight + 10) : 0);
+  if (travel > moveLimits.Z[1]) {
+    throw Error('This print is too tall to leave 10 mm of travel clearance for an adjustable sweep.');
+  }
+
+  const source = preset.bytes.toString('latin1');
+  const work = /^;Z:(\d+(?:\.\d+)?)\r?$/m.exec(source)?.[1];
+  if (!work) throw Error('Could not read the bundled clearing height.');
+  let travelMoves = 0;
+  let workMoves = 0;
+  const output = source.replace(/^G1 Z(\d+(?:\.\d+)?) F600(?=\r?$)/gm, (line, previous) => {
+    if (previous === '12') {
+      travelMoves++;
+      return `G1 Z${travel} F600`;
+    }
+    if (previous === work) {
+      workMoves++;
+      return `G1 Z${z} F600`;
+    }
+    return line;
+  });
+  if (!workMoves || travelMoves !== workMoves + 1) throw Error('Could not adjust all clearing passes.');
+  const estimatedSeconds = Number.isFinite(preset.estimatedSeconds)
+    ? Math.max(1, Math.ceil(preset.estimatedSeconds + 2 * workMoves * ((travel - z) - (12 - Number(work))) / 10))
+    : null;
+  const withHeight = output
+    .replace(/^;Z:[^\r\n]+/m, `;Z:${z}`)
+    .replace(/^;HEIGHT:[^\r\n]+/m, `;HEIGHT:${z}`)
+    .replace(/^; max_z_height:[^\r\n]+/m, `; max_z_height: ${travel.toFixed(2)}`);
+  const bytes = Buffer.from(estimatedSeconds === null ? withHeight : withHeight
+    .replace(/^M73 P0 R\d+/m, `M73 P0 R${Math.ceil(estimatedSeconds / 60)}`)
+    .replace(/^; estimated motion time, excluding heat-up = [^\r\n]+/m, `; estimated motion time, excluding heat-up = ${estimatedSeconds}s`), 'latin1');
+  validateClearingCommands(bytes);
+  return { ...preset, bytes, estimatedSeconds };
+}
