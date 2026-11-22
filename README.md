@@ -4,10 +4,23 @@ AutoLoop is a local print queue for the **Flashforge Adventurer 5M Pro**. Add sl
 
 Built by [Wisconsin Filaments](https://wisconsinfilaments.com/).
 
+## Model support
+
+Select the physical printer model at connection time. AutoLoop checks the model reported over LAN and matches both model and nozzle size when it queues or splits a print.
+
+| Printer | LAN features |
+| --- | --- |
+| Adventurer 5M Pro | G-code queues, model-specific clearing presets, camera where available, and telemetry |
+| Adventurer 5M | G-code queues, manual plate clearing, camera where available, and telemetry |
+| AD5X, Creator 5, Creator 5 Pro | Single-tool text G-code queues with manual plate clearing, telemetry, and camera where available. Material-station slot mapping and 3MF are unavailable. |
+| Adventurer 3, 3 Lite, 3 Pro, 3 Pro 2, 3C, Adventurer 4, 4 Lite, 4 Pro | Monitoring over TCP when the printer exposes an exact machine type through M115. Upload and print controls are unavailable. |
+
+The automatic clearing files remain specific to the 5M Pro. Other LAN-capable Flashforge models need their own verified protocol and profiles before they can be selected. The added adapters have been tested against simulated responses. Test each new model on hardware before relying on its queue.
+
 ## What you need
 
 - A Windows PC with [Node.js 22 or newer](https://nodejs.org/en/download/).
-- A Flashforge Adventurer 5M Pro on the same local network as the PC.
+- A supported Flashforge printer on the same local network as the PC.
 - A text `.gcode` file sliced for the **5M Pro** and the nozzle installed on your printer. Flash Studio and Orca-Flashforge exports are supported when they include the printer and nozzle metadata.
 
 AutoLoop runs on your PC at [http://127.0.0.1:5174/](http://127.0.0.1:5174/). The server listens only on the local computer. Printer communication stays on the LAN. It uses the printer's existing firmware and does not require a cloud account or subscription.
@@ -31,8 +44,8 @@ Double-click **`Start-Simulator.cmd`**, open the same address, and click **Conne
 
 ## Connect your printer
 
-1. On the printer, enable **LAN Only** and find the printer's **LAN IP**, **serial number**, and **LAN check code**.
-2. In AutoLoop, click **Connect printer**, enter those three values, and click **Connect and verify**.
+1. Find the printer’s **LAN IP**. For REST-enabled models, enable **LAN Only** and find the **serial number** and **LAN check code**.
+2. In AutoLoop, click **Connect printer**, choose the model, and enter the fields shown. For legacy monitoring models, enter the LAN IP only.
 3. Confirm the dashboard shows **Printer verified**. Compare the model, nozzle size, and temperatures with the touchscreen.
 4. Enable **Camera** and **Filament detect** on the printer. Use **Refresh camera** if the feed needs reconnecting.
 
@@ -70,9 +83,9 @@ AutoLoop sends the print file as supplied. If a clearing file is selected, AutoL
 
 ## Run a fleet
 
-1. Open **Multi-printer** and click **Add printer** for each Adventurer 5M Pro. Use a label you can recognize next to the machine.
+1. Open **Multi-printer** and click **Add printer** for each supported printer. Use a label you can recognize next to the machine.
 2. Review **Shared settings** before starting. Clearing preset, sweep height, cooling, leveling, plate confirmation, and standby preferences apply to every fleet printer. Save changes while the fleet is idle. The **Single printer** tab retains its own settings and queues.
-3. Upload sliced G-code and enter a copy count. **Assign to one printer** is the default. Choose **Auto-split copies** to divide that batch as evenly as possible among connected, idle fleet printers with a matching nozzle.
+3. Upload sliced G-code and enter a copy count. **Assign to one printer** is the default. Choose **Auto-split copies** to divide that batch as evenly as possible among connected, idle fleet printers of the same model with a matching nozzle.
 4. Click **Start ready printers** after checking each intended build plate, or start a single queue from its card. **Open dashboard** gives access to that printer's camera, individual queues, plate confirmation, sweep test, and stop controls.
 
 Assignments are added to each printer's production queue and do not start a print by themselves. Each printer runs independently. A failed or disconnected printer's copies stay on its queue for review. Fleet printer labels, queues, and shared settings are saved in `local-data/fleet`. Reconnect each printer after restarting AutoLoop. Pairing a printer in the other view moves an idle connection so two dashboards cannot control the same device at once.

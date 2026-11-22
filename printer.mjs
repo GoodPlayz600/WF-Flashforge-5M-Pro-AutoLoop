@@ -1,7 +1,9 @@
 import { createConnection } from 'node:net';
 import { setTimeout as wait } from 'node:timers/promises';
+import { defaultModel, models, modelFromDetail, modelFromName, selectedModel } from './models.mjs';
 
-export function makePrinter(ip, serialNumber, checkCode, request = fetch, identify = readMachineInfo, setHeat = setTemperatures, stopConsole = cancelOnConsole) {
+export function makePrinter(ip, serialNumber, checkCode, request = fetch, identify = readMachineInfo, setHeat = setTemperatures, stopConsole = cancelOnConsole, modelId = defaultModel) {
+  const expected = selectedModel(modelId);
   ip = typeof ip === 'string' ? ip.trim() : '';
   serialNumber = typeof serialNumber === 'string' ? serialNumber.trim() : '';
   checkCode = typeof checkCode === 'string' ? checkCode.trim() : '';
@@ -41,21 +43,32 @@ export function makePrinter(ip, serialNumber, checkCode, request = fetch, identi
       matchSerial(detail.serialNumber ?? detail.sn ?? result.serialNumber);
       if (!identity) {
         const reportedModel = detail.machineType ?? detail.printerModel ?? detail.model ?? result.machineType;
-        if (isProModel(reportedModel)) {
-          identity = { model: 'Flashforge Adventurer 5M Pro', source: 'LAN hardware model' };
-        } else if (!reportedModel && isProModel(detail.name)) {
-          identity = { model: 'Flashforge Adventurer 5M Pro', source: 'LAN device name' };
-        } else {
+        const byName = modelFromName(reportedModel);
+        const byPid = Object.values(models).find(model => model.pid && model.pid === Number(detail.pid));
+        if (byName && byPid && byName.id !== byPid.id) throw Error('The printer reported conflicting model identifiers.');
+        let detected = byName ?? byPid;
+        let source = detected ? 'LAN hardware model' : '';
+        let firmware;
+        if (!detected && expected.id === defaultModel && !reportedModel && isProModel(detail.name)) {
+          detected = expected;
+          source = 'LAN device name';
+        }
+        if (!detected && !expected.pid) {
           let info;
           try { info = await identify(ip); }
-          catch (error) { throw Error(`LAN connected, but model verification could not read the printer’s hardware ID. Close other printer-control apps and retry. ${error.message}`); }
-          if (!isProModel(info.model)) throw Error('The hardware reports something other than an Adventurer 5M Pro. Check the printer IP.');
+          catch (error) { throw Error(`Could not verify the printer model using M115. ${error.message}`); }
           if (!info.serial) throw Error('The hardware ID response omitted the printer serial number.');
           matchSerial(info.serial);
-          identity = { model: 'Flashforge Adventurer 5M Pro', source: 'Hardware ID (M115)', firmware: info.firmware };
+          detected = modelFromName(info.model);
+          source = 'Hardware ID (M115)';
+          firmware = info.firmware;
         }
+        if (detected?.id !== expected.id) {
+          throw Error(`Selected ${expected.name}, but the printer reported ${detected?.name ?? reportedModel ?? 'an unrecognized model'}.`);
+        }
+        identity = { model: expected.label, modelId: expected.id, source, firmware };
       }
-      return { ...detail, verifiedModel: identity.model, identitySource: identity.source,
+      return { ...detail, modelId: identity.modelId, verifiedModel: identity.model, identitySource: identity.source,
         firmwareVersion: detail.firmwareVersion || identity.firmware };
     },
     ip,
@@ -69,10 +82,9 @@ export function makePrinter(ip, serialNumber, checkCode, request = fetch, identi
         ...auth, payload: { cmd: 'jobCtl_cmd', args: { jobID: '', action: 'cancel' } },
       }), { 'Content-Type': 'application/json' });
     },
-    async cancelViaConsole(stillActive) {
-      await stopConsole(ip, stillActive);
-    },
+    cancelViaConsole: expected.pid ? undefined : stillActive => stopConsole(ip, stillActive),
     async setHeat(bed, nozzle) {
+      if (!expected.clearing) throw Error('Standby heat is only available for the 5M Pro profile.');
       return setHeat(ip, bed, nozzle);
     },
     async start(bytes, jobName, autoLevel = true) {
@@ -80,22 +92,18 @@ export function makePrinter(ip, serialNumber, checkCode, request = fetch, identi
       body.append('gcodeFile', new Blob([bytes], { type: 'application/octet-stream' }), jobName);
       await post('uploadGcode', body, {
         ...auth, fileSize: String(bytes.length), printNow: 'true', levelingBeforePrint: String(autoLevel),
-        flowCalibration: 'false', useMatlStation: 'false', gcodeToolCnt: '0', materialMappings: 'W10=',
+        ...(expected.pid ? {} : { flowCalibration: 'false', useMatlStation: 'false', gcodeToolCnt: '0', materialMappings: 'W10=' }),
       }, 30000);
     },
   };
 }
 
 export function isProModel(value) {
-  return /^(?:flashforge)?(?:adventurer5mpro|ad5mpro|5mpro)$/.test(
-    typeof value === 'string' ? value.toLowerCase().replace(/[^a-z0-9]/g, '') : '',
-  );
+  return modelFromName(value)?.id === defaultModel;
 }
 
 export function verifyModel(detail) {
-  if (!isProModel(detail.verifiedModel) && !isProModel(detail.name)) {
-    throw Error('The printer must identify itself as an Adventurer 5M Pro.');
-  }
+  if (!modelFromDetail(detail)) throw Error('The printer did not report a supported Flashforge model.');
 }
 export function verifyPrinter(detail) {
   verifyModel(detail);
@@ -224,6 +232,36 @@ export async function readMachineInfo(ip, connect = createConnection) {
     const get = label => reply.match(new RegExp(`(?:^|\\n)${label}: *([^\\r\\n]*)`, 'i'))?.[1].trim();
     return { model: get('Machine Type'), serial: get('SN'), firmware: get('Firmware') };
   });
+}
+
+export function makeLegacyMonitor(ip, expected, connect = createConnection) {
+  return {
+    ip,
+    async detail() {
+      return readConsole(ip, AbortSignal.timeout(15000), connect, async command => {
+        const info = await command('M115');
+        const reported = /(?:^|\n)Machine Type:\s*([^\r\n]+)/i.exec(info)?.[1].trim();
+        if (modelFromName(reported)?.id !== expected.id) {
+          throw Error(`Selected ${expected.name}, but M115 reported ${reported ?? 'an unrecognized model'}.`);
+        }
+        const status = await command('M119');
+        const state = /MachineStatus:\s*(\w+)/i.exec(status)?.[1].toUpperCase();
+        const states = { READY: 'ready', IDLE: 'ready', BUILDING: 'printing', PRINTING: 'printing', PAUSED: 'paused',
+          BUILDING_COMPLETED: 'completed', ERROR: 'error', BUSY: 'busy' };
+        const temperatures = await command('M105');
+        const reading = sensor => temperatures.match(new RegExp(`(?:^|\\s)${sensor}:\\s*([\\d.]+)\\s*/\\s*([\\d.]+)`, 'i'))
+          ?.slice(1).map(Number) ?? [];
+        const [rightTemp, rightTargetTemp] = reading('T0');
+        const [platTemp, platTargetTemp] = reading('B');
+        return {
+          modelId: expected.id, verifiedModel: expected.label, identitySource: 'Hardware ID (M115)',
+          name: /(?:^|\n)Machine Name:\s*([^\r\n]+)/i.exec(info)?.[1].trim() ?? expected.label,
+          firmwareVersion: /(?:^|\n)Firmware:\s*([^\r\n]+)/i.exec(info)?.[1].trim(),
+          status: states[state] ?? 'unknown', rightTemp, rightTargetTemp, platTemp, platTargetTemp,
+        };
+      });
+    },
+  };
 }
 
 export async function cancelOnConsole(ip, stillActive, connect = createConnection) {

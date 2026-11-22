@@ -1,3 +1,5 @@
+import { defaultModel, models } from '/models.mjs';
+
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="wf-token"]').content;
 const scope = /^\/printers\/[a-f0-9-]{36}/.exec(location.pathname)?.[0] ?? '';
@@ -116,7 +118,7 @@ function renderQueue(next) {
   const remaining = queued.reduce((sum, job) => sum + job.copies - job.completed, 0);
   const finished = jobs.reduce((sum, job) => sum + job.completed, 0);
   $('queue-summary').textContent = jobs.length ? `${jobs.length} ${jobs.length === 1 ? 'job' : 'jobs'} · ${finished} completed · ${remaining} queued` : 'Add a sliced G-code file to get started.';
-  $('start').disabled = !connectedNow(next) || next.busy || !queued.length;
+  $('start').disabled = !next.canPrint || !connectedNow(next) || next.busy || !queued.length;
   $('new-queue').disabled = next.busy;
   $('rename').disabled = next.busy;
 
@@ -177,6 +179,13 @@ function render(next) {
     ? `${next.simulation ? 'Simulator response' : 'Printer replied'} at ${localTime(next.checkedAt)}${next.details?.identitySource ? ` · ${next.details.identitySource}` : ''}`
     : 'Waiting for a response from the printer.');
   const d = next.details;
+  $('dashboard-model').textContent = d?.model ?? 'Flashforge LAN printers';
+  const capabilities = $('model-capabilities');
+  capabilities.hidden = !next.connected || next.canClear;
+  capabilities.textContent = next.canPrint ? 'This model uses manual plate clearing between prints.'
+    : 'This connection supports monitoring. Start and stop prints from the printer or its slicer.';
+  $('clearing-card').hidden = next.connected && !next.canClear;
+  $('add').querySelector('button[type="submit"]').disabled = next.connected && !next.canPrint;
   $('print-time-left').textContent = fresh && Number.isFinite(next.activeSeconds) ? formatDuration(next.activeSeconds) : '—';
   for (const [name, value] of Object.entries({
     'machine-state': d?.state, 'nozzle-size': d?.nozzle ? `${String(d.nozzle).replace(/\s*mm$/i, '')} mm` : null,
@@ -348,7 +357,23 @@ function nameQueue(rename) {
   $('name-dialog').showModal();
 }
 for (const close of document.querySelectorAll('[data-close]')) close.onclick = () => $(close.dataset.close).close();
-$('open-connect').onclick = () => $('connect-dialog').showModal();
+const connectForm = $('connect');
+for (const model of Object.values(models)) {
+  connectForm.elements.model.add(new Option(model.name + (model.transport === 'monitor' ? ' (monitoring)' : ''), model.id));
+}
+function showPairingFields() {
+  const tcpOnly = models[connectForm.elements.model.value]?.transport === 'monitor';
+  for (const label of connectForm.querySelectorAll('[data-lan-auth]')) {
+    label.hidden = tcpOnly;
+    label.querySelector('input').required = !tcpOnly && !state.simulation;
+  }
+}
+connectForm.elements.model.onchange = showPairingFields;
+$('open-connect').onclick = () => {
+  connectForm.elements.model.value = state.modelId ?? defaultModel;
+  showPairingFields();
+  $('connect-dialog').showModal();
+};
 $('verify').onclick = () => void post('/refresh');
 $('camera-refresh').onclick = () => {
   stopCamera();
@@ -421,15 +446,15 @@ $('test-clearing-height').onclick = () => {
 $('start').onclick = () => {
   const entry = state.lists.find(item => item.id === selected);
   const base = 'Confirm the plate is empty, filament detection is on, and the printer is ready.';
-  const prompt = entry.settings.manualClearing ? base
+  const prompt = !state.canClear || entry.settings.manualClearing ? base
     : ` ${base} Also confirm ${entry.clearingFilename} has been tested with these parts and the exit path is clear. Stay by the printer.`.trim();
-  const hotClear = !entry.settings.manualClearing && entry.settings.skipCooldown
+  const hotClear = state.canClear && !entry.settings.manualClearing && entry.settings.skipCooldown
     ? ' Cooldown is off. Confirm the clearing file was tested immediately after a print.' : '';
-  const automatic = !entry.settings.manualClearing && entry.settings.autoConfirmClear
+  const automatic = state.canClear && !entry.settings.manualClearing && entry.settings.autoConfirmClear
     ? ' The next copy starts automatically when clearing completes. Verify this clearing setup before using auto-confirm.' : '';
-  const height = !entry.settings.manualClearing && entry.clearingPreset !== 'custom' && entry.clearingHeight !== null
+  const height = state.canClear && !entry.settings.manualClearing && entry.clearingPreset !== 'custom' && entry.clearingHeight !== null
     ? ` The selected sweep height is ${displayedSweepHeight(entry.clearingHeight)}.` : '';
-  if (ask(prompt + height + hotClear + automatic)) void post('/start', { ack: true, id: selected, clearingValidated: !entry.settings.manualClearing });
+  if (ask(prompt + height + hotClear + automatic)) void post('/start', { ack: true, id: selected, clearingValidated: state.canClear && !entry.settings.manualClearing });
 };
 $('queue-settings').elements.keepWarm.onchange = event => {
   $('standby-options').hidden = !event.target.checked;
@@ -441,7 +466,7 @@ $('queue-settings').onsubmit = async event => {
     bed: Number(form.get('bed')), nozzle: Number(form.get('nozzle')), minutes: Number(form.get('minutes')) });
 };
 $('cancel-print').onclick = () => {
-  if (ask('Cancel the active print on the 5M Pro and stop this queue?')) void post('/cancel-print');
+  if (ask('Cancel the active print on this printer and stop this queue?')) void post('/cancel-print');
 };
 $('stop').onclick = () => void post('/stop');
 $('pause').onclick = () => void post('/pause-next');

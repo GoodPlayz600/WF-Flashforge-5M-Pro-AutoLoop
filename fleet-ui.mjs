@@ -1,3 +1,5 @@
+import { defaultModel, models } from '/models.mjs';
+
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="wf-token"]').content;
 const assign = $('fleet-assign');
@@ -57,6 +59,19 @@ async function start(id) {
   } catch (error) { status(error.message, true); }
 }
 
+const pairForm = $('fleet-pair-form');
+for (const model of Object.values(models)) {
+  pairForm.elements.model.add(new Option(model.name + (model.transport === 'monitor' ? ' (monitoring)' : ''), model.id));
+}
+function showPairingFields() {
+  const tcpOnly = models[pairForm.elements.model.value]?.transport === 'monitor';
+  for (const label of pairForm.querySelectorAll('[data-lan-auth]')) {
+    label.hidden = tcpOnly;
+    label.querySelector('input').required = !tcpOnly && !state?.simulation;
+  }
+}
+pairForm.elements.model.onchange = showPairingFields;
+
 function pair(printer) {
   const form = $('fleet-pair-form');
   form.reset();
@@ -64,7 +79,9 @@ function pair(printer) {
   $('fleet-pair-title').textContent = pairingId ? `Reconnect ${printer.name}` : 'Add printer';
   $('fleet-name').hidden = Boolean(pairingId);
   form.elements.name.required = !pairingId;
-  for (const field of ['ip', 'serial', 'code']) form.elements[field].required = !state?.simulation;
+  form.elements.ip.required = !state?.simulation;
+  form.elements.model.value = printer?.modelId ?? defaultModel;
+  showPairingFields();
   $('fleet-pair-error').textContent = '';
   $('fleet-pair').showModal();
 }
@@ -79,7 +96,7 @@ function renderCard(printer) {
   const badge = element('span', printer.connected ? printer.details?.state || 'Connected' : 'Offline', 'pill');
   badge.dataset.tone = printer.readyToStart ? 'good' : printer.connected ? 'warn' : 'idle';
   header.append(title, badge);
-  const phase = element('p', printer.problem || printer.connectionIssue || printer.phase, 'fleet-phase');
+  const phase = element('p', printer.problem || printer.connectionIssue || (printer.connected && !printer.canPrint ? 'Monitoring only' : printer.phase), 'fleet-phase');
   const jobs = printer.jobs.filter(job => job.queueId === 'default');
   const estimateSeconds = printer.lists.find(queue => queue.id === 'default')?.estimate.seconds;
   const summary = estimateSeconds ? ` · about ${Math.ceil(estimateSeconds / 60)} min left` : '';
@@ -111,7 +128,7 @@ function updateAssignment() {
   const split = assign.elements.mode.value === 'split';
   $('assign-target').hidden = split;
   assign.elements.printerId.required = !split;
-  $('assign-submit').disabled = assigning || !state?.printers.length || (split && !state.printers.some(printer => printer.readyToStart));
+  $('assign-submit').disabled = assigning || !assign.elements.printerId.options.length || (split && !state.printers.some(printer => printer.readyToStart));
 }
 
 function render(next) {
@@ -123,12 +140,13 @@ function render(next) {
   $('start-fleet').disabled = !next.printers.some(printer => printer.readyToStart &&
     printer.jobs.some(job => job.queueId === 'default' && job.state === 'Queued'));
 
-  const nextTargetsKey = JSON.stringify(next.printers.map(({ id, name }) => [id, name]));
+  const assignable = next.printers.filter(printer => !printer.connected || printer.canPrint);
+  const nextTargetsKey = JSON.stringify(assignable.map(({ id, name }) => [id, name]));
   if (nextTargetsKey !== targetsKey) {
     targetsKey = nextTargetsKey;
     const current = assign.elements.printerId.value;
-    assign.elements.printerId.replaceChildren(...next.printers.map(printer => new Option(printer.name, printer.id)));
-    if (next.printers.some(printer => printer.id === current)) assign.elements.printerId.value = current;
+    assign.elements.printerId.replaceChildren(...assignable.map(printer => new Option(printer.name, printer.id)));
+    if (assignable.some(printer => printer.id === current)) assign.elements.printerId.value = current;
   }
   updateAssignment();
   const nextProfileKey = JSON.stringify(next.profile);

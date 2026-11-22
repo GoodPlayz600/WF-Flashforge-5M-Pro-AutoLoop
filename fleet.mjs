@@ -8,7 +8,7 @@ const queueId = 'default';
 const eligibleStates = new Set(['ready', 'idle', 'completed', 'building_completed', 'cancel', 'canceled', 'cancelled']);
 
 function canStart(state, simulation) {
-  return state.connected && !state.connectionIssue && !state.busy &&
+  return state.canPrint && state.connected && !state.connectionIssue && !state.busy &&
     eligibleStates.has(state.details?.state) && (simulation || Date.now() - Date.parse(state.checkedAt) < 18000);
 }
 const nozzleOf = state => Number(String(state.details?.nozzle ?? '').match(/[\d.]+/)?.[0]);
@@ -28,13 +28,13 @@ export function createFleet({ simulation, singleQueue, queueOptions, directory, 
       ...queueOptions, ...storage(`${id}/`), sharedProfile: () => settings.profile(),
     });
   }
-  for (const { id, name } of stored) {
+  for (const { id, name, modelId } of stored) {
     if (!/^[a-f0-9-]{36}$/i.test(id)) throw Error('Invalid saved fleet printer ID.');
-    printers.set(id, { id, name, queue: makeQueue(id) });
+    printers.set(id, { id, name, modelId, queue: makeQueue(id) });
   }
   function savePrinters() {
     if (simulation) return;
-    const records = [...printers.values()].map(({ id, name }) => ({ id, name }));
+    const records = [...printers.values()].map(({ id, name, modelId }) => ({ id, name, modelId }));
     mkdirSync(directory, { recursive: true });
     writeFileSync(temporary, JSON.stringify(records), { mode: 0o600 });
     renameSync(temporary, metadata);
@@ -47,10 +47,11 @@ export function createFleet({ simulation, singleQueue, queueOptions, directory, 
   const targets = () => [...printers.values()].map(entry => ({ ...entry, state: entry.queue.state() }));
 
   async function connect(id, body, newQueue) {
-    const target = newQueue ?? (id === 'single' ? singleQueue : printer(id).queue);
+    const entry = !newQueue && id !== 'single' ? printer(id) : null;
+    const target = newQueue ?? entry?.queue ?? singleQueue;
     if (pending.has(id)) throw Error('A connection for this printer is already being checked.');
     const serial = String(body.serial ?? '').trim().toUpperCase().replace(/^SN[ :_-]*/, '');
-    const device = makeDevice(id, body);
+    const device = makeDevice(id, { ...body, model: body.model ?? entry?.modelId });
     const ip = device.ip;
     const conflicts = ([key, candidate]) => key !== id && (candidate.ip === ip || (serial && candidate.serial === serial));
     if ([...pending].some(conflicts)) throw Error('This printer is already being connected in another dashboard.');
@@ -73,6 +74,9 @@ export function createFleet({ simulation, singleQueue, queueOptions, directory, 
       }
       await target.connect(device, detail);
       connections.set(id, { ip, serial });
+      const modelId = target.state().modelId;
+      if (entry && entry.modelId !== modelId) { entry.modelId = modelId; savePrinters(); }
+      return modelId;
     } finally {
       pending.delete(id);
     }
@@ -99,7 +103,7 @@ export function createFleet({ simulation, singleQueue, queueOptions, directory, 
       simulation,
       profile: settings.state().lists[0],
       printers: targets().map(({ id, name, state: current }) => ({
-        id, name, ...current, readyToStart: canStart(current, simulation),
+        id, name, ...current, modelId: current.modelId ?? printers.get(id).modelId, readyToStart: canStart(current, simulation),
       })),
     };
   }
@@ -112,8 +116,8 @@ export function createFleet({ simulation, singleQueue, queueOptions, directory, 
         if (!name || name.length > 50) throw Error('Enter a printer name from 1 to 50 characters.');
         const id = randomUUID();
         const queue = makeQueue(id);
-        await connect(id, body, queue);
-        printers.set(id, { id, name, queue });
+        const modelId = await connect(id, body, queue);
+        printers.set(id, { id, name, modelId, queue });
         try { savePrinters(); }
         catch (error) { printers.delete(id); connections.delete(id); throw error; }
         return { id };
@@ -132,9 +136,12 @@ export function createFleet({ simulation, singleQueue, queueOptions, directory, 
         const job = parseJob(body);
         const split = body.split === true;
         const assigned = split ? null : printer(body.printerId);
-        const eligible = split ? targets().filter(({ state }) => canStart(state, simulation) && nozzleOf(state) === job.nozzle)
+        const eligible = split ? targets().filter(({ state }) => canStart(state, simulation) && state.modelId === job.modelId && nozzleOf(state) === job.nozzle)
           : [{ ...assigned, state: assigned.queue.state() }];
-        if (!eligible.length) throw Error('No idle, connected printer matches this G-code’s nozzle size.');
+        if (!eligible.length) throw Error('No idle, connected printer matches this G-code’s model and nozzle size.');
+        if (assigned && (assigned.modelId ?? eligible[0].state.modelId) && (assigned.modelId ?? eligible[0].state.modelId) !== job.modelId) {
+          throw Error('This G-code’s model does not match the assigned printer.');
+        }
         if (!split && eligible[0].state.connected && nozzleOf(eligible[0].state) !== job.nozzle) {
           throw Error('This G-code’s nozzle size does not match the assigned printer.');
         }

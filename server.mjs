@@ -8,6 +8,7 @@ import { liveCameraFrames, readCameraFrame } from './camera.mjs';
 import { makePrinter, readMotionStatus, runMotion, diagnoseHomingStatus } from './printer.mjs';
 import { createQueue, parseJob } from './queue.mjs';
 import { queueStorage } from './queue-storage.mjs';
+import { defaultModel, selectedModel } from './models.mjs';
 import { createFleet } from './fleet.mjs';
 import { validateClearingCommands } from './clearing.mjs';
 import { raisedSweepPreset } from './sweep.mjs';
@@ -16,7 +17,8 @@ const simulation = process.argv.includes('--simulate');
 const port = Number(process.env.WF_PORT ?? 5174);
 const origin = `http://127.0.0.1:${port}`;
 const token = randomUUID();
-function simulatedPrinter(id) {
+function simulatedPrinter(id, modelId) {
+  const model = selectedModel(modelId);
   let simulatedJob;
   let poll = 0;
   let simulatedState;
@@ -25,7 +27,7 @@ function simulatedPrinter(id) {
     ip: `simulated-${id}`,
     async detail() {
       const status = simulatedState ?? (!simulatedJob ? 'ready' : poll++ < 3 ? 'printing' : 'completed');
-      return { name: 'Flashforge Adventurer 5M Pro', firmwareVersion: 'Simulator', nozzleModel: '0.4',
+      return { name: model.label, modelId: model.id, verifiedModel: model.label, firmwareVersion: 'Simulator', nozzleModel: '0.4',
         status, printFileName: simulatedJob, printProgress: status === 'completed' ? 1 : 0.4,
         printLayer: 100, targetPrintLayer: 100, platTemp: 28, rightTemp: 34, platTargetTemp: heat[0], rightTargetTemp: heat[1] };
     },
@@ -63,7 +65,8 @@ const queueOptions = simulation ? {
 const singleQueue = createQueue({ ...queueOptions, ...(simulation ? {} : queueStorage(dataDir)) });
 const fleet = createFleet({
   simulation, singleQueue, queueOptions, directory: new URL('fleet/', dataDir),
-  makeDevice: (id, body) => simulation ? simulatedPrinter(id) : makePrinter(body.ip, body.serial, body.code),
+  makeDevice: (id, body) => simulation ? simulatedPrinter(id, body.model ?? defaultModel)
+    : makePrinter(body.ip, body.serial, body.code, undefined, undefined, undefined, undefined, body.model ?? defaultModel),
 });
 
 if (!simulation) setInterval(() => {
@@ -74,6 +77,7 @@ const staticFiles = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/fleet': ['fleet.html', 'text/html; charset=utf-8'],
   '/fleet.mjs': ['fleet-ui.mjs', 'text/javascript; charset=utf-8'],
+  '/models.mjs': ['models.mjs', 'text/javascript; charset=utf-8'],
   '/ui.mjs': ['ui.mjs', 'text/javascript; charset=utf-8'],
   '/sweep.mjs': ['sweep.mjs', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],

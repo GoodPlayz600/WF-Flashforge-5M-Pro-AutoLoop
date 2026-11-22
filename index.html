@@ -12,7 +12,7 @@
 <div class="top"><div class="bar"><div class="identity"><div class="mark" aria-hidden="true">WF</div><div><strong>AutoLoop</strong><small>Wisconsin Filaments</small></div></div><span class="pill" data-tone="idle" id="connection"><i></i><span>Disconnected</span></span></div></div>
 <main>
 <nav class="view-tabs" aria-label="Printer views"><a href="/" id="single-view" aria-current="page">Single printer</a><a href="/fleet">Multi-printer</a><span id="fleet-profile-note" hidden>Fleet printer · shared settings</span></nav>
-<header class="pagehead"><div><h1>Printer dashboard</h1><p>Flashforge Adventurer 5M Pro</p></div><button type="button" id="open-connect" class="secondary">Connect printer</button></header>
+<header class="pagehead"><div><h1>Printer dashboard</h1><p id="dashboard-model">Flashforge LAN printers</p></div><button type="button" id="open-connect" class="secondary">Connect printer</button></header>
 <p id="sim" class="notice" hidden>Simulator is on. It doesn’t send any commands to your printer.</p>
 <p id="message" role="alert" class="notice warning" hidden></p>
 <div class="overview">
@@ -33,6 +33,7 @@
 <section class="card queue">
 <div class="cardhead"><div><h2>Production queues</h2><p id="queue-summary">Add a sliced G-code file to get started.</p><p id="queue-time-left" hidden></p></div>
 <div class="actions"><button id="rename" type="button" class="secondary compact">Rename</button><button id="new-queue" type="button" class="secondary compact">+ New queue</button></div></div>
+<p id="model-capabilities" class="notice" hidden></p>
 <div id="queue-tabs" class="tabs" aria-label="Select production queue"></div>
 <form id="add" class="add">
 <label class="upload"><span>Sliced G-code</span><input type="file" name="file" accept=".gcode" required></label>
@@ -40,7 +41,7 @@
 <button type="submit">Add job</button>
 </form>
 <div class="table"><table><thead><tr><th>Job</th><th>Completed</th><th>Status</th><th>Manage</th></tr></thead><tbody id="jobs"></tbody></table></div>
-<section class="clearing-card" aria-labelledby="clearing-title">
+<section class="clearing-card" id="clearing-card" aria-labelledby="clearing-title">
 <div><h3 id="clearing-title">Clearing job</h3><strong id="clearing-filename"></strong><p id="clearing-mode"></p></div>
 <form id="clearing-file" class="actions">
 <label>Clearing file<select id="clearing-preset">
@@ -86,10 +87,11 @@
 </main>
 <dialog id="connect-dialog">
 <form id="connect">
-<h2>Connect your 5M Pro</h2><p>Enable LAN Only on the printer. Enter the IP and LAN check code shown on the printer, plus its serial number.</p>
+<h2>Connect a Flashforge printer</h2><p>Choose the model and enter its local network address.</p>
+<label>Printer model<select name="model" required></select></label>
 <label>LAN IP<input name="ip" placeholder="192.168.1.42" autocomplete="off"></label>
-<label>Serial number<input name="serial" autocomplete="off"></label>
-<label>LAN check code<input name="code" type="password" autocomplete="off"></label>
+<label data-lan-auth>Serial number<input name="serial" autocomplete="off"></label>
+<label data-lan-auth>LAN check code<input name="code" type="password" autocomplete="off"></label>
 <p id="connect-result" class="inline-error" role="alert"></p>
 <div class="actions"><button type="submit">Connect and verify</button><button type="button" class="secondary" data-close="connect-dialog">Cancel</button></div>
 </form></dialog>

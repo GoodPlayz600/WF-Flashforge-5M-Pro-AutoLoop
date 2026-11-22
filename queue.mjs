@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as wait } from 'node:timers/promises';
+import { defaultModel, modelFromDetail, modelFromName } from './models.mjs';
 import { verifyPrinter, verifyCooled, verifyModel } from './printer.mjs';
 import { injectRaisedSweep } from './inject.mjs';
 import { clearingAtHeight, validateClearingCommands } from './clearing.mjs';
@@ -13,14 +14,19 @@ export function parseJob({ filename, data, copies, sweep, raised }) {
   const bytes = Buffer.from(data, 'base64');
   if (bytes.length > 48 * 1024 * 1024) throw Error('Use a G-code file under 48 MiB.');
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-  const model = /^;\s*printer_model\s*=\s*(.+)$/im.exec(text)?.[1].trim();
+  const model = modelFromName(/^;\s*printer_model\s*=\s*(.+)$/im.exec(text)?.[1].trim());
   const nozzle = Number(/^;\s*nozzle_diameter\s*=\s*([\d.]+)/im.exec(text)?.[1]);
   const height = Number(/^;\s*max_z_height\s*:\s*([\d.]+)/im.exec(text)?.[1]);
-  if (!model || !/^Flashforge Adventurer 5M Pro$/i.test(model) || ![0.25, 0.4, 0.6, 0.8].includes(nozzle) ||
+  if (!model || model.transport !== 'rest' || ![0.25, 0.4, 0.6, 0.8].includes(nozzle) ||
       /LOOPER AUTO-EJECT|SIMULATION ONLY|RAM EJECT/i.test(text)) {
-    throw Error('Use original text G-code exported for the Flashforge Adventurer 5M Pro from Flash Studio or Orca.');
+    throw Error('Use text G-code sliced for a supported Flashforge model with its printer and nozzle metadata.');
   }
-  return { filename, bytes, nozzle, estimatedSeconds: slicedSeconds(text), height: Number.isFinite(height) && height > 0 ? height : null, copies, sweep: sweep === true, raised: raised === true };
+  if ((model.id === 'ad5x' || model.pid) &&
+      (/^\s*(?:T[1-9]\d*\b|ACTIVATE_EXTRUDER\b|M6\b)/im.test(text) ||
+        /^;\s*filament_type\s*=[^\r\n]*;[^\r\n]+/im.test(text))) {
+    throw Error('Use a single-tool G-code export. Material-station mapping is not available in AutoLoop.');
+  }
+  return { filename, bytes, nozzle, modelId: model.id, estimatedSeconds: slicedSeconds(text), height: Number.isFinite(height) && height > 0 ? height : null, copies, sweep: sweep === true, raised: raised === true };
 }
 
 const printActive = new Set(['heating', 'printing', 'pausing', 'paused']);
@@ -45,6 +51,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
   const jobs = (saved.jobs ?? []).map(job => ({
     ...job,
     bytes: job.bytes,
+    modelId: job.modelId ?? defaultModel,
     estimatedSeconds: Object.hasOwn(job, 'estimatedSeconds') ? job.estimatedSeconds : slicedSeconds(job.bytes),
     state: ['Queued', 'Done'].includes(job.state) ? job.state : 'Interrupted — inspect printer before re-adding',
   }));
@@ -130,6 +137,14 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
   }
   function requirePrinter() {
     if (!printer) throw Error('Connect your printer first.');
+  }
+  function requireQueuePrinter() {
+    requirePrinter();
+    if (modelFromDetail(details)?.transport !== 'rest') throw Error('This printer is connected for monitoring only.');
+  }
+  function requireProPrinter() {
+    requireQueuePrinter();
+    if (!modelFromDetail(details)?.clearing) throw Error('These clearing and calibration controls require a 5M Pro.');
   }
   function requireAck(value) {
     if (value !== true) throw Error('Confirm the setup on the printer first.');
@@ -330,6 +345,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
     state() {
       const ownedProgress = ownedPrint && details?.printFileName === ownedPrint && printActive.has(details.status)
         ? details : null;
+      const model = details ? modelFromDetail(details) : null;
       const runningJob = ownedPrint ? (activeJob?.state === 'Clearing' ? 'clearing' : 'print') : null;
       const selectedList = activeQueue ? list(activeQueue) : null;
       const activeEstimate = runningJob === 'clearing' && selectedList
@@ -348,7 +364,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
             clearingFilename: clearingSelection(entry) === 'custom' ? profile.clearing?.filename : presets[clearingSelection(entry)]?.filename,
             customClearing: Boolean(profile.clearing),
             estimate: estimateQueue(jobs.filter(job => job.queueId === entry.id), {
-              clearing: isFileClearing && !settings.manualClearing,
+              clearing: isFileClearing && !settings.manualClearing && (!model || model.clearing),
               clearingSeconds: job => clearingEstimate(entry, job.height),
               activeJob: current ? activeJob?.id : null,
               runningJob: current ? runningJob : null,
@@ -357,9 +373,10 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
           };
         }),
         activeSeconds,
+        modelId: model?.id ?? null, canPrint: model?.transport === 'rest', canClear: model?.clearing ?? false,
         activeQueue, pauseAfterCopy, plan, motionReading, jogBaselineAvailable: Boolean(jogBaseline && jogBaseline.expires > Date.now()), checkedAt, connectionIssue, warmUntil, warmIssue, cancelling,
-        canAcknowledgeEnd: !running && !cancelling && endPrompt.has(details?.status),
-        canCancel: Boolean(printer && (ownedPrint || printActive.has(details?.status))),
+        canAcknowledgeEnd: model?.transport === 'rest' && !running && !cancelling && endPrompt.has(details?.status),
+        canCancel: Boolean(model?.transport === 'rest' && printer && (ownedPrint || printActive.has(details?.status))),
         ip: printer?.ip ?? null,
         connected: Boolean(printer), busy: Boolean(running || cancelling), phase, problem, waiting: Boolean(pendingClear),
         contactMeasured, testedAir: airProof, testedContact: contactProof, contactAwaitingConfirmation: clearanceProof,
@@ -367,7 +384,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
           name: details.name, model: details.verifiedModel, identitySource: details.identitySource, firmware: details.firmwareVersion, nozzle: details.nozzleModel,
           bed: details.platTemp, bedTarget: details.platTargetTemp, nozzleTemp: details.rightTemp, nozzleTarget: details.rightTargetTemp, state: details.status, progress: details.printProgress,
         },
-        jobs: jobs.map(({ id, queueId, filename, state, copies, completed, sweep, raised, height }) => ({ id, queueId, filename, state, copies, completed, sweep, raised, height })),
+        jobs: jobs.map(({ id, queueId, filename, state, copies, completed, sweep, raised, height, modelId }) => ({ id, queueId, filename, state, copies, completed, sweep, raised, height, modelId })),
       };
     },
     async connect(next, verifiedDetail) {
@@ -448,6 +465,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
       const entry = list(id);
       if (file) {
         const job = parseJob({ ...file, copies: 1 });
+        if (job.modelId !== defaultModel) throw Error('Clearing files must be sliced for the Adventurer 5M Pro.');
         validateClearingCommands(job.bytes);
         entry.clearing = { filename: job.filename, data: job.bytes.toString('base64'), estimatedSeconds: job.estimatedSeconds };
         entry.clearingPreset = 'custom';
@@ -476,7 +494,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
       checkpoint();
     },
     testClearingHeight(id, height, acknowledged) {
-      requirePrinter(); requireIdle(); requireAck(acknowledged);
+      requireProPrinter(); requireIdle(); requireAck(acknowledged);
       requireSweepHeight(height);
       const preset = presets[clearingSelection(list(id))];
       if (!preset) throw Error('Select Fast clear or Slow clear to test the slider height.');
@@ -502,6 +520,9 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
       return this.addParsed(parseJob(source), source.queueId);
     },
     addParsed(job, queueId) {
+      if (details && (modelFromDetail(details)?.transport !== 'rest' || job.modelId !== modelFromDetail(details)?.id)) {
+        throw Error('This G-code was sliced for a different printer model.');
+      }
       const entry = { ...job, queueId: list(queueId).id, id: randomUUID(), state: 'Queued', completed: 0 };
       jobs.push(entry);
       try { checkpoint(); }
@@ -568,7 +589,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
       });
     },
     diagnoseJog(acknowledged) {
-      requirePrinter(); requireIdle(); requireAck(acknowledged);
+      requireProPrinter(); requireIdle(); requireAck(acknowledged);
       if (!jogBaseline || jogBaseline.expires <= Date.now()) throw Error('Click Read X/Y/Z before jogging from the touchscreen.');
       const { position } = jogBaseline.reading;
       jogBaseline = null;
@@ -588,7 +609,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
       });
     },
     probeX(acknowledged, homeRetry = false) {
-      requirePrinter(); requireIdle(); requireAck(acknowledged);
+      requireProPrinter(); requireIdle(); requireAck(acknowledged);
       motionReading = null;
       phase = 'Testing a 5 mm X move';
       startTask(async signal => {
@@ -603,7 +624,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
       });
     },
     test(air, acknowledged, homeRetry = false) {
-      requirePrinter(); requireIdle(); requireAck(acknowledged);
+      requireProPrinter(); requireIdle(); requireAck(acknowledged);
       if (!air && !contactMeasured) throw Error('Enter and confirm the measured contact height before testing contact.');
       if (!plan || (!air && !airProof)) throw Error('Save the path and pass the raised test before contact testing.');
       clearanceProof = false;
@@ -627,7 +648,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
         contactProof = true;
         phase = 'Contact test confirmed for this session and sweep path';
       } else {
-        requirePrinter(); requireIdle(); requireAck(acknowledged);
+        requireQueuePrinter(); requireIdle(); requireAck(acknowledged);
         if (!endPrompt.has(details?.status)) throw Error('No plate confirmation is pending.');
         const expectedFile = details.printFileName;
         startTask(async signal => {
@@ -644,7 +665,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
       await running;
     },
     async cancelPrint() {
-      requirePrinter();
+      requireQueuePrinter();
       if (cancelling) throw Error('Cancellation is already being checked.');
       cancelling = true;
       const expected = ownedPrint ?? details?.printFileName;
@@ -724,12 +745,14 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
       pauseAfterCopy = !pauseAfterCopy;
     },
     start(acknowledged, id, clearingValidated) {
-      requirePrinter(); requireIdle(); requireAck(acknowledged);
+      requireQueuePrinter(); requireIdle(); requireAck(acknowledged);
       const selected = list(id);
       const queue = jobs.filter(job => job.queueId === selected.id && job.completed < job.copies && job.state === 'Queued');
       if (!queue.length) throw Error('Add a new job first. Stopped jobs require manual review before re-adding.');
+      const model = modelFromDetail(details);
+      if (queue.some(job => job.modelId !== model.id)) throw Error('The queue contains G-code for a different printer model.');
       const settings = settingsFor(selected);
-      const clearing = isFileClearing && !settings.manualClearing ? clearingFor(selected) : null;
+      const clearing = model.clearing && isFileClearing && !settings.manualClearing ? clearingFor(selected) : null;
       if (clearing && clearingValidated !== true) {
         throw Error('Confirm that this clearing file was tested with your printer and the queued parts.');
       }
@@ -782,7 +805,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
               job.state = 'Clearing';
               phase = 'Sending separate clearing G-code';
               await startFile(clearingFiles.get(job.id).bytes, finishedFile, false, signal, true);
-            } else if (!isFileClearing && job.sweep) {
+            } else if (model.clearing && !isFileClearing && job.sweep) {
               job.state = 'Cooling';
               phase = plan.parameters.cooled === null ? 'Waiting for nozzle cooldown' : 'Waiting for measured cooldown';
               await cooled(plan.parameters.cooled, signal);
@@ -794,7 +817,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
             const autoConfirm = clearing && (settings.autoConfirmClear ||
               await verifyPlateClear({ filename: finishedFile, signal }) === true);
             if (!autoConfirm) {
-              if (settings.keepWarm && moreCopies && !pauseAfterCopy) await warmWhileWaiting(settings, signal);
+              if (model.clearing && settings.keepWarm && moreCopies && !pauseAfterCopy) await warmWhileWaiting(settings, signal);
               else await awaitClear(signal);
             }
             phase = 'Acknowledging completion on the printer';

@@ -12,12 +12,12 @@
 <div class="top"><div class="bar"><div class="identity"><div class="mark" aria-hidden="true">WF</div><div><strong>AutoLoop</strong><small>Wisconsin Filaments</small></div></div><span class="pill" id="fleet-status">No printers</span></div></div>
 <main>
 <nav class="view-tabs" aria-label="Printer views"><a href="/">Single printer</a><a href="/fleet" aria-current="page">Multi-printer</a></nav>
-<header class="pagehead"><div><h1>Printer fleet</h1><p>Flashforge Adventurer 5M Pro</p></div><div class="actions"><button type="button" id="add-printer">Add printer</button><button type="button" class="secondary" id="start-fleet" disabled>Start ready printers</button></div></header>
+<header class="pagehead"><div><h1>Printer fleet</h1><p>Flashforge LAN printers</p></div><div class="actions"><button type="button" id="add-printer">Add printer</button><button type="button" class="secondary" id="start-fleet" disabled>Start ready printers</button></div></header>
 <p id="fleet-simulator" class="notice" hidden>Simulator is on. No commands are sent to real printers.</p>
 <p id="fleet-message" class="notice" role="status" hidden></p>
 <div class="fleet-layout">
 <section class="card" aria-labelledby="assign-title">
-<div class="cardhead"><div><h2 id="assign-title">Assign a print</h2><p>Send it to one queue or divide the copies across compatible idle printers.</p></div></div>
+<div class="cardhead"><div><h2 id="assign-title">Assign a print</h2><p>Send it to one queue or divide the copies across idle printers with the same model and nozzle.</p></div></div>
 <form id="fleet-assign" class="fleet-form">
 <label class="upload">Sliced G-code<input type="file" name="file" accept=".gcode" required></label>
 <div class="fleet-fields">
@@ -28,7 +28,7 @@
 <button type="submit" id="assign-submit" disabled>Add to queue</button>
 </form></section>
 <section class="card" aria-labelledby="profile-title">
-<div class="cardhead"><div><h2 id="profile-title">Shared settings</h2><p>Apply to all fleet printers. The single-printer view keeps its own settings.</p></div></div>
+<div class="cardhead"><div><h2 id="profile-title">Shared settings</h2><p>Apply to the fleet. Automated clearing and standby heat are available on the 5M Pro.</p></div></div>
 <form id="fleet-profile" class="fleet-form">
 <div class="fleet-fields">
 <label>Clearing preset<select name="preset"><option value="fast">Fast clear</option><option value="slow">Slow clear</option><option value="custom" hidden>Custom upload</option></select></label>
@@ -58,9 +58,10 @@
 <dialog id="fleet-pair"><form id="fleet-pair-form">
 <h2 id="fleet-pair-title">Add printer</h2>
 <label id="fleet-name">Printer name<input name="name" maxlength="50" required></label>
+<label>Printer model<select name="model" required></select></label>
 <label>LAN IP<input name="ip" placeholder="192.168.1.42" autocomplete="off"></label>
-<label>Serial number<input name="serial" autocomplete="off"></label>
-<label>LAN check code<input name="code" type="password" autocomplete="off"></label>
+<label data-lan-auth>Serial number<input name="serial" autocomplete="off"></label>
+<label data-lan-auth>LAN check code<input name="code" type="password" autocomplete="off"></label>
 <p id="fleet-pair-error" class="inline-error" role="alert"></p>
 <div class="actions"><button type="submit">Connect and verify</button><button type="button" id="fleet-pair-close" class="secondary">Cancel</button></div>
 </form></dialog>
