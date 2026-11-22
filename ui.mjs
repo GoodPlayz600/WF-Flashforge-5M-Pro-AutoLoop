@@ -29,9 +29,16 @@ function btn(label, action, disabled = false) {
   return button;
 }
 
+function formatDuration(seconds) {
+  if (seconds < 60) return seconds > 0 ? '< 1 min' : '0 min';
+  const minutes = Math.ceil(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours} h ${minutes % 60} min` : `${minutes} min`;
+}
+
 function renderQueue(next) {
   if (!next.lists.some(item => item.id === selected)) selected = next.lists[0].id;
-  const currentTabKey = JSON.stringify([next.lists, selected, next.activeQueue]);
+  const currentTabKey = JSON.stringify([next.lists.map(({ id, name }) => [id, name]), selected, next.activeQueue]);
   if (tabKey !== currentTabKey) {
     tabKey = currentTabKey;
     $('queue-tabs').replaceChildren(...next.lists.map(entry => {
@@ -47,6 +54,13 @@ function renderQueue(next) {
   }
   const entry = next.lists.find(item => item.id === selected);
   const settings = entry.settings;
+  const eta = $('queue-time-left');
+  const { seconds, unknown } = entry.estimate;
+  eta.hidden = !seconds && !unknown;
+  eta.textContent = unknown
+    ? (seconds ? `Queue time left · ${formatDuration(seconds)} estimated + jobs without a time estimate` : 'Queue time left · No estimates in these files')
+    : `Queue time left · About ${formatDuration(seconds)}`;
+  eta.title = 'Estimated print and clearing time. Excludes cooldown and time waiting for confirmation.';
   $('clearing-filename').textContent = entry.clearingFilename;
   const preset = $('clearing-preset');
   preset.querySelector('[value="custom"]').hidden = !entry.customClearing;
@@ -134,6 +148,7 @@ function render(next) {
     ? `${next.simulation ? 'Simulator response' : 'Printer replied'} at ${localTime(next.checkedAt)}${next.details?.identitySource ? ` · ${next.details.identitySource}` : ''}`
     : 'Waiting for a response from the printer.');
   const d = next.details;
+  $('print-time-left').textContent = fresh && Number.isFinite(next.activeSeconds) ? formatDuration(next.activeSeconds) : '—';
   for (const [name, value] of Object.entries({
     'machine-state': d?.state, 'nozzle-size': d?.nozzle ? `${String(d.nozzle).replace(/\s*mm$/i, '')} mm` : null,
     'bed-temp': Number.isFinite(d?.bed) ? `${Math.round(d.bed)} °C` : null,

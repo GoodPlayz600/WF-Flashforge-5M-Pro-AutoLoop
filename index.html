@@ -26,11 +26,11 @@
 <section class="card printer" aria-labelledby="printer-title">
 <div class="cardhead"><div><h2 id="printer-title">Printer telemetry</h2><p id="proof">Waiting for a response from the printer.</p></div><button type="button" id="verify" class="secondary compact" disabled>Check connection</button></div>
 <div class="tiles"><div><span>Printer state</span><strong id="machine-state">—</strong></div><div><span>Nozzle size</span><strong id="nozzle-size">—</strong></div><div><span>Bed</span><strong id="bed-temp">—</strong><small id="bed-target"></small></div><div><span>Nozzle</span><strong id="nozzle-temp">—</strong><small id="nozzle-target"></small></div></div>
-<dl><div><dt>Device name</dt><dd id="device">—</dd></div><div><dt>Verified model</dt><dd id="model">—</dd></div><div><dt>LAN address</dt><dd id="ip">—</dd></div><div><dt>Firmware</dt><dd id="firmware">—</dd></div></dl>
+<dl><div><dt>Device name</dt><dd id="device">—</dd></div><div><dt>Verified model</dt><dd id="model">—</dd></div><div><dt>LAN address</dt><dd id="ip">—</dd></div><div><dt>Firmware</dt><dd id="firmware">—</dd></div><div><dt>Print time left</dt><dd id="print-time-left">—</dd></div></dl>
 </section>
 </div>
 <section class="card queue">
-<div class="cardhead"><div><h2>Production queues</h2><p id="queue-summary">Add a sliced G-code file to get started.</p></div>
+<div class="cardhead"><div><h2>Production queues</h2><p id="queue-summary">Add a sliced G-code file to get started.</p><p id="queue-time-left" hidden></p></div>
 <div class="actions"><button id="rename" type="button" class="secondary compact">Rename</button><button id="new-queue" type="button" class="secondary compact">+ New queue</button></div></div>
 <div id="queue-tabs" class="tabs" aria-label="Select production queue"></div>
 <form id="add" class="add">

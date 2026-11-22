@@ -3,6 +3,7 @@ import { setTimeout as wait } from 'node:timers/promises';
 import { verifyPrinter, verifyCooled, verifyModel } from './printer.mjs';
 import { injectRaisedSweep } from './inject.mjs';
 import { validateClearingCommands } from './clearing.mjs';
+import { estimateQueue, remainingSeconds, slicedSeconds } from './estimates.mjs';
 import { raisedSweepPreset, sweepPlan } from './sweep.mjs';
 
 export function parseJob({ filename, data, copies, sweep, raised }) {
@@ -19,7 +20,7 @@ export function parseJob({ filename, data, copies, sweep, raised }) {
       /LOOPER AUTO-EJECT|SIMULATION ONLY|RAM EJECT/i.test(text)) {
     throw Error('Use original text G-code exported for the Flashforge Adventurer 5M Pro from Flash Studio or Orca.');
   }
-  return { filename, bytes, nozzle, height: Number.isFinite(height) && height > 0 ? height : null, copies, sweep: sweep === true, raised: raised === true };
+  return { filename, bytes, nozzle, estimatedSeconds: slicedSeconds(text), height: Number.isFinite(height) && height > 0 ? height : null, copies, sweep: sweep === true, raised: raised === true };
 }
 
 const printActive = new Set(['heating', 'printing', 'pausing', 'paused']);
@@ -38,6 +39,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
   const jobs = (saved.jobs ?? []).map(job => ({
     ...job,
     bytes: job.bytes,
+    estimatedSeconds: Object.hasOwn(job, 'estimatedSeconds') ? job.estimatedSeconds : slicedSeconds(job.bytes),
     state: ['Queued', 'Done'].includes(job.state) ? job.state : 'Interrupted — inspect printer before re-adding',
   }));
   let pauseAfterCopy = false;
@@ -90,6 +92,15 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
     return job;
   }
   const isFileClearing = Boolean(defaultClearing);
+  const legacyClearingEstimates = new WeakMap();
+  function clearingEstimate(entry) {
+    const selection = clearingSelection(entry);
+    if (selection !== 'custom') return presets[selection]?.estimatedSeconds ?? null;
+    const file = entry.clearing;
+    if (Object.hasOwn(file, 'estimatedSeconds')) return file.estimatedSeconds;
+    if (!legacyClearingEstimates.has(file)) legacyClearingEstimates.set(file, slicedSeconds(Buffer.from(file.data, 'base64')));
+    return legacyClearingEstimates.get(file);
+  }
 
 
   function requireIdle() {
@@ -286,13 +297,33 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
 
   return {
     state() {
+      const ownedProgress = ownedPrint && details?.printFileName === ownedPrint && printActive.has(details.status)
+        ? details : null;
+      const runningJob = ownedPrint ? (activeJob?.state === 'Clearing' ? 'clearing' : 'print') : null;
+      const selectedList = activeQueue ? list(activeQueue) : null;
+      const activeEstimate = runningJob === 'clearing' && selectedList
+        ? clearingEstimate(selectedList) : activeJob?.estimatedSeconds;
+      const activeSeconds = !connectionIssue && details && printActive.has(details.status)
+        ? remainingSeconds(details, ownedProgress ? activeEstimate : null) : null;
       return {
-        lists: lists.map(entry => ({
-          id: entry.id, name: entry.name, settings: settingsFor(entry),
-          clearingPreset: clearingSelection(entry),
-          clearingFilename: clearingSelection(entry) === 'custom' ? entry.clearing?.filename : presets[clearingSelection(entry)]?.filename,
-          customClearing: Boolean(entry.clearing),
-        })),
+        lists: lists.map(entry => {
+          const settings = settingsFor(entry);
+          const current = entry.id === activeQueue;
+          return {
+            id: entry.id, name: entry.name, settings,
+            clearingPreset: clearingSelection(entry),
+            clearingFilename: clearingSelection(entry) === 'custom' ? entry.clearing?.filename : presets[clearingSelection(entry)]?.filename,
+            customClearing: Boolean(entry.clearing),
+            estimate: estimateQueue(jobs.filter(job => job.queueId === entry.id), {
+              clearing: isFileClearing && !settings.manualClearing,
+              clearingSeconds: clearingEstimate(entry),
+              activeJob: current ? activeJob?.id : null,
+              runningJob: current ? runningJob : null,
+              progress: current && !connectionIssue ? ownedProgress : null,
+            }),
+          };
+        }),
+        activeSeconds,
         activeQueue, pauseAfterCopy, plan, motionReading, jogBaselineAvailable: Boolean(jogBaseline && jogBaseline.expires > Date.now()), checkedAt, connectionIssue, warmUntil, warmIssue, cancelling,
         canAcknowledgeEnd: !running && !cancelling && endPrompt.has(details?.status),
         canCancel: Boolean(printer && (ownedPrint || printActive.has(details?.status))),
@@ -361,7 +392,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
       if (file) {
         const job = parseJob({ ...file, copies: 1 });
         validateClearingCommands(job.bytes);
-        entry.clearing = { filename: job.filename, data: job.bytes.toString('base64') };
+        entry.clearing = { filename: job.filename, data: job.bytes.toString('base64'), estimatedSeconds: job.estimatedSeconds };
         entry.clearingPreset = 'custom';
       } else {
         delete entry.clearing;
