@@ -235,9 +235,10 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
           : d.status === 'heating' ? 'Heating' : 'Printing';
       }
       if (active && !matches) throw Error('Printer is running a different file.');
-      if (started && matches && d.status === 'completed' && d.printProgress >= 1 &&
+      const completed = d.status === 'completed' || d.status === 'building_completed';
+      if (started && matches && completed && d.printProgress >= 1 &&
           (clearing || (d.targetPrintLayer > 0 && d.printLayer >= d.targetPrintLayer))) return;
-      if (started && (!matches || (!active && d.status !== 'completed'))) {
+      if (started && (!matches || (!active && !completed))) {
         throw Error('The active job disappeared or changed status without reporting a successful completion.');
       }
       if (!started && Date.now() > startDeadline) throw Error('Printer did not confirm the requested job started.');
@@ -246,23 +247,40 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
     throw Error('Timed out waiting for confirmed completion.');
   }
 
-  async function acknowledgeEndPrompt(expectedFile, signal) {
+  async function acknowledgeEndPrompt(expectedFile, signal, jobCompleted = false) {
+    function checkState(detail) {
+      if ((!idle.has(detail.status) && !endPrompt.has(detail.status)) ||
+          (expectedFile && detail.printFileName && detail.printFileName !== expectedFile)) {
+        throw Error('The printer state changed. Check the touchscreen before continuing.');
+      }
+    }
+
     let detail = await readStatus();
-    if (idle.has(detail.status)) return detail;
-    if (!endPrompt.has(detail.status) ||
-        (expectedFile && detail.printFileName && detail.printFileName !== expectedFile)) {
-      throw Error('The printer state changed. Check the touchscreen before continuing.');
+    checkState(detail);
+    if (!jobCompleted && idle.has(detail.status)) return detail;
+
+    let lastError;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      signal?.throwIfAborted();
+      // A just-finished job can report Ready before its touchscreen prompt settles.
+      // Still send OK for an observed completion, and retry if the same prompt remains.
+      try {
+        await printer.clearFinished();
+        lastError = undefined;
+      } catch (error) {
+        lastError = error;
+      }
+      let readyChecks = 0;
+      for (let check = 0; check < 6; check++) {
+        await sleep(500, undefined, { signal });
+        detail = await readStatus();
+        checkState(detail);
+        readyChecks = idle.has(detail.status) ? readyChecks + 1 : 0;
+        if (readyChecks >= 2 && !lastError) return detail;
+      }
     }
-    signal?.throwIfAborted();
-    await printer.clearFinished();
-    for (let check = 0; check < 6; check++) {
-      detail = await readStatus();
-      if (idle.has(detail.status)) return detail;
-      if (!endPrompt.has(detail.status) ||
-          (expectedFile && detail.printFileName && detail.printFileName !== expectedFile)) break;
-      await sleep(500, undefined, { signal });
-    }
-    throw Error(`Printer still reports ${detail.status} after acknowledgement. Clear the prompt at the touchscreen before continuing.`);
+    const reason = lastError ? ` ${lastError.message}` : '';
+    throw Error(`Printer did not confirm OK for ${expectedFile || 'the finished job'} (last state: ${detail.status}).${reason} Check the touchscreen before continuing.`);
   }
 
   async function startFile(bytes, filename, autoLevel, signal, clearing = false) {
@@ -512,7 +530,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
         if (endPrompt.has(detail.status)) detail = await acknowledgeEndPrompt(detail.printFileName, signal);
         verifyPrinter(detail);
         await startFile(bytes, filename, false, signal, true);
-        await acknowledgeEndPrompt(filename, signal);
+        await acknowledgeEndPrompt(filename, signal, true);
         phase = `Sweep test complete at Z${height || 0.2} mm.`;
       });
     },
@@ -793,6 +811,9 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
             checkpoint();
             let finishedFile = filename;
             if (clearing) {
+              job.state = 'Preparing to clear';
+              phase = 'Acknowledging print completion on the printer';
+              await acknowledgeEndPrompt(filename, signal, true);
               if (!settings.skipCooldown) {
                 job.state = 'Cooling';
                 phase = 'Waiting for the plate and nozzle to cool';
@@ -800,7 +821,6 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
               }
               job.state = 'Preparing to clear';
               phase = 'Preparing separate clearing job';
-              await acknowledgeEndPrompt(filename, signal);
               finishedFile = filename.replace(/\.gcode$/, '-clear.gcode');
               job.state = 'Clearing';
               phase = 'Sending separate clearing G-code';
@@ -822,7 +842,7 @@ export function createQueue({ motion, inspectMotion, diagnoseHoming, sleep = wai
             }
             phase = 'Acknowledging completion on the printer';
             signal.throwIfAborted();
-            await acknowledgeEndPrompt(finishedFile, signal);
+            await acknowledgeEndPrompt(finishedFile, signal, true);
             job.state = job.completed >= job.copies ? 'Done' : 'Queued';
             checkpoint();
             if (pauseAfterCopy) {
